@@ -7,5 +7,6 @@
   "homeassistant": "2023.0.0",
   "persistent_directory": "custom_components/huawei_charger",
   "render_readme": true,
-  "zip_release": true
+  "zip_release": false,
+  "source": "master"
 }

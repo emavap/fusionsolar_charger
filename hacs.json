@@ -1,12 +1,11 @@
 {
-  "name": "Huawei Charger Integration",
+  "name": "Huawei Charger",
   "content_in_root": false,
-  "domains": ["huawei_charger"],
-  "country": "IT",
-  "homeassistant": "2023.0.0",
-  "render_readme": true,
   "filename": "huawei_charger",
-  "zip_release": true,
+  "domain": "huawei_charger",
+  "country": "\ud83c\udde8\ud83c\uddf3",
+  "homeassistant": "2023.0.0",
   "persistent_directory": "custom_components/huawei_charger",
-  "domain": "huawei_charger"
+  "render_readme": true,
+  "zip_release": true
 }

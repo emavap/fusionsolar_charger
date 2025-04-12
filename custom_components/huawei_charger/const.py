@@ -1,5 +1,9 @@
 DOMAIN = "huawei_charger"
 
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
+CONF_INTERVAL = "scan_interval"
+
 REGISTER_NAME_MAP = {
     "538976516": "Device IP",
     "538976598": "Fixed Max Charging Power",

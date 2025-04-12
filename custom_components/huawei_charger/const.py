@@ -17,5 +17,5 @@ REGISTER_NAME_MAP = {
     "20013": "Lock Status",
     "20017": "Plugged In",
     "20029": "Device Serial Number",
-    "10007": "Charger Model"
+    "10007": "Charger Model"    "538976598": "Fixed Max Charging Power",    "20001": "Dynamic Power Limit",
 }

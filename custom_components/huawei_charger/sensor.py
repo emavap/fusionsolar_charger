@@ -6,14 +6,14 @@ from .const import DOMAIN, REGISTER_NAME_MAP
 
 INTERESTING_SENSOR_REGISTERS = [
     "538976516",  # Device IP
-    # REMOVED,    # Session Energy
+    "2101260",    # Session Energy
     "2101259",    # Phase A Voltage
-    # REMOVED,    # Total Energy
-    # REMOVED,      # Charging State
+    "2101261",    # Total Energy
+    "20014",      # Charging State
     "20016",      # Charging Enabled
     "20011",      # Device Name
     "20010",      # Charging Mode
-    # REMOVED,      # A Output Current
+    "10035",      # A Output Current
     "10008",      # Total Energy Charged
     "10001",      # Software Version
     "20013",      # Lock Status

@@ -8,5 +8,9 @@
   "codeowners": [
     "@emavap"
   ],
-  "config_flow": true
+  "config_flow": true,
+  "platforms": [
+    "sensor",
+    "number"
+  ]
 }

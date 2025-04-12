@@ -5,6 +5,7 @@ import voluptuous as vol
 from .const import DOMAIN, CONF_INTERVAL
 
 DATA_SCHEMA = vol.Schema({
+    vol.Optional("model_type", default="7KS"): vol.In(["7KS", "22KS"]),
     vol.Required(CONF_USERNAME): str,
     vol.Required(CONF_PASSWORD): str,
     vol.Optional(CONF_INTERVAL, default=30): int,

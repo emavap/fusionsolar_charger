@@ -15,5 +15,6 @@ REGISTER_NAME_MAP = {
     "10001": "Software Version",
     "20013": "Lock Status",
     "20017": "Plugged In",
-    "20029": "Device Serial Number"    "10007": "Charger Model",
+    "20029": "Device Serial Number",
+    "10007": "Charger Model",
 }

@@ -14,7 +14,7 @@ class HuaweiChargerNumber(NumberEntity):
     def __init__(self, coordinator, reg_id):
         self.coordinator = coordinator
         self._reg_id = reg_id
-        self._attr_name = REGISTER_NAME_MAP.get(reg_id, f"Register {reg_id}")
+        self._attr_name = f"Huawei Charger - {REGISTER_NAME_MAP.get(reg_id, f'Register {reg_id}').replace('_', ' ').title()}"
         self._attr_unique_id = f"{coordinator.entry.entry_id}_{reg_id}"
         self._attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
         self._attr_native_min_value = 0.1

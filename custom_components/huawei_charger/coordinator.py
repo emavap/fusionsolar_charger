@@ -108,3 +108,33 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         wallbox = data["data"][0]
         self.wallbox_dn_id = wallbox["dnId"]
         self.param_values = wallbox.get("paramValues", {})
+
+def set_config_value(self, param_id: str, value, retries=3):
+    url = f"https://{self.region_ip}:32800/rest/neteco/web/homemgr/v1/device/set-config-info"
+    payload = {
+        "dnId": self.wallbox_dn_id,
+        "changeValues": [{"id": int(param_id), "value": value}]
+    }
+    headers = self.headers.copy()
+
+    for attempt in range(retries):
+        try:
+            response = requests.post(url, json=payload, headers=headers, verify=False)
+            response.raise_for_status()
+            
+            if response.status_code == 200:
+                _LOGGER.info(f"Successfully set config {param_id} to {value}")
+                return True
+            else:
+                _LOGGER.warning(f"Attempt {attempt+1}/{retries} failed with status: {response.status_code}")
+        except requests.RequestException as err:
+            _LOGGER.warning(f"Attempt {attempt+1}/{retries} encountered an error: {err}")
+
+        if attempt < retries - 1:
+            sleep_time = 2 ** attempt
+            _LOGGER.info(f"Retrying set_config_value in {sleep_time}s...")
+            time.sleep(sleep_time)
+        else:
+            _LOGGER.error(f"Failed to set config after {retries} attempts.")
+
+    return False

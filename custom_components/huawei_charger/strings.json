@@ -1,0 +1,8 @@
+{
+  "title": "Huawei Charger",
+  "description": "Monitor and control your Huawei wallbox",
+  "config_flow": {
+    "title": "Huawei Charger",
+    "description": "Set up Huawei Charger with your FusionSolar credentials"
+  }
+}

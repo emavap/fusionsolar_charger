@@ -1,0 +1,15 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Huawei Charger Login",
+        "description": "Enter your FusionSolar credentials",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "update_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  }
+}

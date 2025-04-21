@@ -1,0 +1,14 @@
+{
+  "domain": "huawei_charger",
+  "name": "Huawei Charger",
+  "version": "1.0.0",
+  "documentation": "https://github.com/emavap/fusionsolar_charger",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": [
+    "@emavap"
+  ],
+  "config_flow": true,
+  "iot_class": "cloud_polling",
+  "icon": "icon.png"
+}

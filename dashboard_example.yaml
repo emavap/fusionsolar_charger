@@ -1,0 +1,259 @@
+# Huawei Charger Dashboard Configuration
+# Copy and paste these card configurations into your Home Assistant dashboard
+
+# Main Charger Status Card - Overview with current status
+type: entities
+title: "🔌 Huawei Charger Status"
+state_color: true
+entities:
+  - entity: sensor.huawei_charger_charging_status
+    name: "Status"
+    icon: mdi:ev-station
+  - entity: sensor.huawei_charger_plugged_in
+    name: "Cable Connected"
+    icon: mdi:power-plug
+  - entity: sensor.huawei_charger_temperature
+    name: "Temperature"
+    icon: mdi:thermometer
+  - entity: number.huawei_charger_fixed_max_charging_power
+    name: "Max Power Limit"
+    icon: mdi:speedometer
+  - entity: number.huawei_charger_dynamic_power_limit
+    name: "Dynamic Limit"
+    icon: mdi:flash
+
+---
+
+# Power and Voltage Gauges - Visual representation of electrical parameters
+type: horizontal-stack
+cards:
+  - type: gauge
+    entity: sensor.huawei_charger_rated_power
+    name: "Rated Power"
+    unit: "kW"
+    min: 0
+    max: 8
+    severity:
+      green: 0
+      yellow: 5
+      red: 7
+    needle: true
+    
+  - type: gauge  
+    entity: sensor.huawei_charger_phase_a_voltage
+    name: "Phase A Voltage"
+    unit: "V"
+    min: 200
+    max: 250
+    severity:
+      red: 200
+      yellow: 220
+      green: 230
+    needle: true
+
+  - type: gauge
+    entity: sensor.huawei_charger_phase_b_voltage  
+    name: "Phase B Voltage"
+    unit: "V"
+    min: 200
+    max: 250
+    severity:
+      red: 200
+      yellow: 220
+      green: 230
+    needle: true
+
+---
+
+# Energy Tracking Card - Total and session energy
+type: entities
+title: "⚡ Energy Tracking"
+entities:
+  - entity: sensor.huawei_charger_total_energy_charged
+    name: "Total Energy"
+    icon: mdi:lightning-bolt
+    secondary_info: last-updated
+  - entity: sensor.huawei_charger_session_energy
+    name: "Current Session"
+    icon: mdi:battery-charging
+  - entity: sensor.huawei_charger_session_duration
+    name: "Session Duration"
+    icon: mdi:timer
+  - type: divider
+  - entity: sensor.huawei_charger_phase_c_voltage
+    name: "Phase C Voltage"
+    icon: mdi:sine-wave
+
+---
+
+# Statistics Card - Historical energy data
+type: statistics-graph
+title: "📊 Charging History"
+entities:
+  - sensor.huawei_charger_total_energy_charged
+  - sensor.huawei_charger_session_energy
+period: week
+stat_types:
+  - sum
+  - max
+  - mean
+
+---
+
+# Control Card - Power management
+type: entities
+title: "🎛️ Power Control"
+entities:
+  - entity: number.huawei_charger_fixed_max_charging_power
+    name: "Max Charging Power"
+    icon: mdi:speedometer-medium
+  - entity: number.huawei_charger_dynamic_power_limit
+    name: "Dynamic Power Limit"
+    icon: mdi:flash-triangle
+  - type: divider
+  - entity: sensor.huawei_charger_rated_power
+    name: "Device Rated Power"
+    icon: mdi:information
+
+---
+
+# Compact Status Card - Minimal overview
+type: glance
+title: "🚗 Charger Quick View"
+entities:
+  - entity: sensor.huawei_charger_charging_status
+    name: "Status"
+  - entity: sensor.huawei_charger_plugged_in
+    name: "Plugged"
+  - entity: sensor.huawei_charger_session_energy
+    name: "Energy"
+  - entity: sensor.huawei_charger_session_duration
+    name: "Time"
+  - entity: sensor.huawei_charger_temperature
+    name: "Temp"
+
+---
+
+# Advanced Multi-Column Layout
+type: vertical-stack
+cards:
+  # Header with status
+  - type: horizontal-stack
+    cards:
+      - type: entity
+        entity: sensor.huawei_charger_charging_status
+        name: "Charging Status"
+        icon: mdi:ev-station
+        
+      - type: entity
+        entity: sensor.huawei_charger_plugged_in
+        name: "Cable Status"
+        icon: mdi:power-plug-outline
+        
+  # Main metrics row
+  - type: horizontal-stack
+    cards:
+      - type: statistic
+        entity: sensor.huawei_charger_total_energy_charged
+        name: "Total Energy"
+        icon: mdi:lightning-bolt
+        
+      - type: statistic
+        entity: sensor.huawei_charger_session_energy
+        name: "Session Energy"
+        icon: mdi:battery-charging-100
+        
+      - type: statistic
+        entity: sensor.huawei_charger_session_duration
+        name: "Session Time"
+        icon: mdi:clock-time-four
+        
+  # Voltage monitoring row
+  - type: horizontal-stack
+    cards:
+      - type: entity
+        entity: sensor.huawei_charger_phase_a_voltage
+        name: "Phase A"
+        icon: mdi:sine-wave
+        
+      - type: entity
+        entity: sensor.huawei_charger_phase_b_voltage
+        name: "Phase B" 
+        icon: mdi:sine-wave
+        
+      - type: entity
+        entity: sensor.huawei_charger_phase_c_voltage
+        name: "Phase C"
+        icon: mdi:sine-wave
+        
+  # Control row
+  - type: horizontal-stack
+    cards:
+      - type: entity
+        entity: number.huawei_charger_fixed_max_charging_power
+        name: "Max Power"
+        
+      - type: entity
+        entity: number.huawei_charger_dynamic_power_limit
+        name: "Dynamic Limit"
+
+---
+
+# Temperature Monitoring Card
+type: thermostat
+entity: sensor.huawei_charger_temperature
+name: "Charger Temperature"
+
+---
+
+# Custom Energy Flow Card (requires custom:sankey-chart card)
+# Install via HACS: https://github.com/MindFreeze/ha-sankey-chart
+type: custom:sankey-chart
+title: "Energy Flow"
+entities:
+  - entity: sensor.huawei_charger_session_energy
+    name: "Grid"
+    color: "#1f77b4"
+  - entity: sensor.huawei_charger_session_energy  
+    name: "Charger"
+    color: "#ff7f0e"
+  - entity: sensor.huawei_charger_session_energy
+    name: "Vehicle"
+    color: "#2ca02c"
+
+---
+
+# Markdown Information Card
+type: markdown
+title: "ℹ️ Charger Information"
+content: |
+  **Huawei SCharger-7KS-S0**
+  
+  - **Model**: {{ states('sensor.huawei_charger_device_model') | default('Unknown') }}
+  - **Software**: {{ states('sensor.huawei_charger_software_version') | default('Unknown') }}
+  - **Serial**: {{ states('sensor.huawei_charger_device_serial_number') | default('Unknown') }}
+  - **Rated Power**: {{ states('sensor.huawei_charger_rated_power') | default('Unknown') }} kW
+  
+  **Current Status**:
+  - Status: {{ states('sensor.huawei_charger_charging_status') | default('Unknown') }}
+  - Temperature: {{ states('sensor.huawei_charger_temperature') | default('Unknown') }}°C
+  - Session Energy: {{ states('sensor.huawei_charger_session_energy') | default('0') }} kWh
+  - Session Duration: {{ states('sensor.huawei_charger_session_duration') | default('0') }} minutes
+
+---
+
+# Button Card for Quick Actions (requires custom:button-card)
+# Install via HACS: https://github.com/custom-cards/button-card
+type: custom:button-card
+name: "Emergency Stop"
+icon: mdi:stop-circle
+color_type: card
+color: red
+tap_action:
+  action: call-service
+  service: number.set_value
+  service_data:
+    entity_id: number.huawei_charger_dynamic_power_limit
+    value: 0
+hold_action:
+  action: more-info

@@ -5,10 +5,8 @@ class HuaweiChargerStatusCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.entity) {
-      throw new Error('You need to define an entity');
-    }
-    this.config = config;
+    // Allow card to work without entity specification - will auto-detect
+    this.config = config || {};
   }
 
   set hass(hass) {
@@ -21,29 +19,43 @@ class HuaweiChargerStatusCard extends HTMLElement {
   }
 
   render() {
-    if (!this._hass || !this.config) return;
+    if (!this._hass) return;
 
-    const entityId = this.config.entity;
-    const entity = this._hass.states[entityId];
+    // Auto-detect available entities by searching for Huawei Charger entities
+    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
+      id.includes('huawei_charger') && this._hass.states[id].attributes.friendly_name?.includes('Huawei Charger')
+    );
     
-    if (!entity) {
+    // Try to find the best entities to use
+    const findEntity = (patterns) => {
+      for (const pattern of patterns) {
+        const found = huaweiEntities.find(id => id.includes(pattern));
+        if (found) return this._hass.states[found];
+      }
+      return null;
+    };
+    
+    const chargingStatus = findEntity(['charging_status']);
+    const currentPower = findEntity(['current_power', 'power']);
+    const sessionEnergy = findEntity(['session_energy']);
+    const pluggedIn = findEntity(['plugged_in', 'plugged']);
+    const dynamicPowerLimit = this._hass.states[`number.huawei_charger_dynamic_power_limit`];
+    
+    // If no Huawei entities found, show helpful message
+    if (huaweiEntities.length === 0) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
-            <div class="error">Entity ${entityId} not found</div>
+            <div class="error">
+              <h3>No Huawei Charger entities found</h3>
+              <p>Make sure the Huawei Charger integration is installed and configured.</p>
+              <p>Check Settings → Devices & Services → Integrations</p>
+            </div>
           </div>
         </ha-card>
       `;
       return;
     }
-
-    // Get related entities
-    const baseName = entityId.replace('sensor.huawei_charger_', '').replace('_', ' ');
-    const chargingStatus = this._hass.states[`sensor.huawei_charger_charging_status`];
-    const currentPower = this._hass.states[`sensor.huawei_charger_current_power`];
-    const sessionEnergy = this._hass.states[`sensor.huawei_charger_session_energy`];
-    const pluggedIn = this._hass.states[`sensor.huawei_charger_plugged_in`];
-    const dynamicPowerLimit = this._hass.states[`number.huawei_charger_dynamic_power_limit`];
 
     // Determine charging state and color
     const isCharging = chargingStatus?.state === '1' || chargingStatus?.state === 'Charging';

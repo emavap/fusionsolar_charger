@@ -86,8 +86,8 @@ Restart Home Assistant to load the new resources.
 
 ### Basic Status Card
 ```yaml
+# No configuration needed - auto-detects entities
 type: custom:huawei-charger-status-card
-entity: sensor.huawei_charger_charging_status
 ```
 
 ### Control Card
@@ -117,7 +117,6 @@ cards:
   - type: horizontal-stack
     cards:
       - type: custom:huawei-charger-status-card
-        entity: sensor.huawei_charger_charging_status
       - type: custom:huawei-charger-control-card
   
   - type: horizontal-stack

@@ -5,11 +5,7 @@ class HuaweiChargerControlCard extends HTMLElement {
   }
 
   setConfig(config) {
-    this.config = {
-      dynamic_power_entity: 'number.huawei_charger_dynamic_power_limit',
-      fixed_power_entity: 'number.huawei_charger_fixed_max_charging_power',
-      ...config
-    };
+    this.config = config || {};
   }
 
   set hass(hass) {
@@ -22,16 +18,40 @@ class HuaweiChargerControlCard extends HTMLElement {
   }
 
   render() {
-    if (!this._hass || !this.config) return;
+    if (!this._hass) return;
 
-    const dynamicEntity = this._hass.states[this.config.dynamic_power_entity];
-    const fixedEntity = this._hass.states[this.config.fixed_power_entity];
+    // Auto-detect power control entities
+    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
+      id.includes('huawei_charger')
+    );
     
+    const findEntity = (patterns) => {
+      for (const pattern of patterns) {
+        const found = huaweiEntities.find(id => id.includes(pattern));
+        if (found) return this._hass.states[found];
+      }
+      return null;
+    };
+    
+    const dynamicEntity = findEntity(['dynamic_power_limit']) || 
+                         this._hass.states[this.config.dynamic_power_entity];
+    const fixedEntity = findEntity(['fixed_max_charging_power', 'fixed_max_power']) || 
+                       this._hass.states[this.config.fixed_power_entity];
+    
+    // If no power control entities found, show helpful message
     if (!dynamicEntity) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
-            <div class="error">Entity ${this.config.dynamic_power_entity} not found</div>
+            <div class="error">
+              <h3>No power control entities found</h3>
+              <p>Available Huawei Charger entities:</p>
+              <ul style="text-align: left; margin: 8px 0;">
+                ${huaweiEntities.slice(0, 10).map(id => `<li><code>${id}</code></li>`).join('')}
+                ${huaweiEntities.length > 10 ? `<li>... and ${huaweiEntities.length - 10} more</li>` : ''}
+              </ul>
+              <p>Make sure the integration includes number entities for power control.</p>
+            </div>
           </div>
         </ha-card>
       `;
@@ -275,8 +295,17 @@ class HuaweiChargerControlCard extends HTMLElement {
   setPowerLimit(value) {
     if (!this._hass) return;
     
+    // Find the dynamic power limit entity
+    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
+      id.includes('huawei_charger')
+    );
+    const dynamicEntityId = huaweiEntities.find(id => id.includes('dynamic_power_limit')) || 
+                           this.config.dynamic_power_entity;
+    
+    if (!dynamicEntityId) return;
+    
     this._hass.callService('number', 'set_value', {
-      entity_id: this.config.dynamic_power_entity,
+      entity_id: dynamicEntityId,
       value: value
     });
   }

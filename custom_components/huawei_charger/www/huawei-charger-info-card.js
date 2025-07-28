@@ -21,24 +21,57 @@ class HuaweiChargerInfoCard extends HTMLElement {
   }
 
   render() {
-    if (!this._hass || !this.config) return;
+    if (!this._hass) return;
 
+    // Auto-detect device info entities
+    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
+      id.includes('huawei_charger')
+    );
+    
+    const findEntity = (patterns) => {
+      for (const pattern of patterns) {
+        const found = huaweiEntities.find(id => id.includes(pattern));
+        if (found) return this._hass.states[found];
+      }
+      return null;
+    };
+    
     // Get device info entities
-    const deviceName = this._hass.states['sensor.huawei_charger_device_name'];
-    const serialNumber = this._hass.states['sensor.huawei_charger_device_serial_number'];
-    const softwareVersion = this._hass.states['sensor.huawei_charger_software_version'];
-    const hardwareVersion = this._hass.states['sensor.huawei_charger_hardware_version'];
-    const deviceModel = this._hass.states['sensor.huawei_charger_device_model'];
-    const ratedPower = this._hass.states['sensor.huawei_charger_rated_power'];
-    const temperature = this._hass.states['sensor.huawei_charger_temperature'];
-    const lockStatus = this._hass.states['sensor.huawei_charger_lock_status'];
-    const errorCode = this._hass.states['sensor.huawei_charger_error_code'];
-    const warningCode = this._hass.states['sensor.huawei_charger_warning_code'];
+    const deviceName = findEntity(['device_name', 'name']);
+    const serialNumber = findEntity(['device_serial_number', 'serial_number']);
+    const softwareVersion = findEntity(['software_version']);
+    const hardwareVersion = findEntity(['hardware_version']);
+    const deviceModel = findEntity(['device_model', 'model']);
+    const ratedPower = findEntity(['rated_power']);
+    const temperature = findEntity(['temperature']);
+    const lockStatus = findEntity(['lock_status']);
+    const errorCode = findEntity(['error_code']);
+    const warningCode = findEntity(['warning_code']);
     
     // Get voltage sensors for diagnostic info
-    const phaseAVoltage = this._hass.states['sensor.huawei_charger_phase_a_voltage'];
-    const phaseBVoltage = this._hass.states['sensor.huawei_charger_phase_b_voltage'];
-    const phaseCVoltage = this._hass.states['sensor.huawei_charger_phase_c_voltage'];
+    const phaseAVoltage = findEntity(['phase_a_voltage']);
+    const phaseBVoltage = findEntity(['phase_b_voltage']);
+    const phaseCVoltage = findEntity(['phase_c_voltage']);
+    
+    // If no device info entities found, show helpful message
+    if (!deviceName && !serialNumber && !softwareVersion && !temperature) {
+      this.shadowRoot.innerHTML = `
+        <ha-card>
+          <div class="card-content">
+            <div class="error">
+              <h3>No device information entities found</h3>
+              <p>Available Huawei Charger entities:</p>
+              <ul style="text-align: left; margin: 8px 0;">
+                ${huaweiEntities.slice(0, 10).map(id => `<li><code>${id}</code></li>`).join('')}
+                ${huaweiEntities.length > 10 ? `<li>... and ${huaweiEntities.length - 10} more</li>` : ''}
+              </ul>
+              <p>Make sure the integration includes device information sensor entities.</p>
+            </div>
+          </div>
+        </ha-card>
+      `;
+      return;
+    }
 
     // Determine device health status
     let healthStatus = 'Good';

@@ -6,13 +6,9 @@ class HuaweiChargerEnergyCard extends HTMLElement {
 
   setConfig(config) {
     this.config = {
-      session_energy_entity: 'sensor.huawei_charger_session_energy',
-      session_duration_entity: 'sensor.huawei_charger_session_duration',
-      total_energy_entity: 'sensor.huawei_charger_total_energy_charged',
-      current_power_entity: 'sensor.huawei_charger_current_power',
-      show_cost: config.show_cost || false,
-      energy_cost: config.energy_cost || 0.12, // per kWh
-      currency: config.currency || '€',
+      show_cost: config?.show_cost || false,
+      energy_cost: config?.energy_cost || 0.12, // per kWh
+      currency: config?.currency || '€',
       ...config
     };
   }
@@ -27,18 +23,44 @@ class HuaweiChargerEnergyCard extends HTMLElement {
   }
 
   render() {
-    if (!this._hass || !this.config) return;
+    if (!this._hass) return;
 
-    const sessionEnergyEntity = this._hass.states[this.config.session_energy_entity];
-    const sessionDurationEntity = this._hass.states[this.config.session_duration_entity];
-    const totalEnergyEntity = this._hass.states[this.config.total_energy_entity];
-    const currentPowerEntity = this._hass.states[this.config.current_power_entity];
+    // Auto-detect energy monitoring entities
+    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
+      id.includes('huawei_charger')
+    );
     
-    if (!sessionEnergyEntity) {
+    const findEntity = (patterns) => {
+      for (const pattern of patterns) {
+        const found = huaweiEntities.find(id => id.includes(pattern));
+        if (found) return this._hass.states[found];
+      }
+      return null;
+    };
+    
+    const sessionEnergyEntity = findEntity(['session_energy']) || 
+                               this._hass.states[this.config.session_energy_entity];
+    const sessionDurationEntity = findEntity(['session_duration']) || 
+                                 this._hass.states[this.config.session_duration_entity];
+    const totalEnergyEntity = findEntity(['total_energy_charged', 'total_energy']) || 
+                             this._hass.states[this.config.total_energy_entity];
+    const currentPowerEntity = findEntity(['current_power', 'power']) || 
+                              this._hass.states[this.config.current_power_entity];
+    
+    // If no energy entities found, show helpful message
+    if (!sessionEnergyEntity && !totalEnergyEntity && !currentPowerEntity) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
-            <div class="error">Entity ${this.config.session_energy_entity} not found</div>
+            <div class="error">
+              <h3>No energy monitoring entities found</h3>
+              <p>Available Huawei Charger entities:</p>
+              <ul style="text-align: left; margin: 8px 0;">
+                ${huaweiEntities.slice(0, 10).map(id => `<li><code>${id}</code></li>`).join('')}
+                ${huaweiEntities.length > 10 ? `<li>... and ${huaweiEntities.length - 10} more</li>` : ''}
+              </ul>
+              <p>Make sure the integration includes energy-related sensor entities.</p>
+            </div>
           </div>
         </ha-card>
       `;

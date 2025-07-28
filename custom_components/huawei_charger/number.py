@@ -3,6 +3,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.const import UnitOfPower
 import asyncio
 import logging
+import time
 
 from .const import DOMAIN, REGISTER_NAME_MAP, REG_FIXED_MAX_POWER, REG_DYNAMIC_POWER_LIMIT
 
@@ -33,6 +34,14 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
             "name": "Huawei Charger",
             "manufacturer": "Huawei",
         }
+        
+        # EEPROM protection: debouncing and rate limiting
+        self._pending_value = None
+        self._pending_task = None
+        self._last_write_time = 0
+        self._last_set_value = None
+        self._debounce_delay = 5.0  # seconds
+        self._min_write_interval = 30.0  # seconds minimum between writes
     
     def _set_power_limits(self):
         """Set power limits based on device capabilities from registers."""
@@ -82,13 +91,68 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
             _LOGGER.error("Invalid value %s for register %s (must be between %s and %s)", 
                          value, self._reg_id, self._attr_native_min_value, self._attr_native_max_value)
             return
+        
+        # Skip if value hasn't changed (avoid redundant writes)
+        if self._last_set_value is not None and abs(value - self._last_set_value) < 0.01:
+            _LOGGER.debug("Skipping redundant write for register %s: value unchanged (%.2f)", 
+                         self._reg_id, value)
+            return
+        
+        # Cancel any pending write task
+        if self._pending_task and not self._pending_task.done():
+            self._pending_task.cancel()
+            _LOGGER.debug("Cancelled pending write task for register %s", self._reg_id)
+        
+        # Store the pending value
+        self._pending_value = value
+        
+        # Start debounced write task
+        self._pending_task = asyncio.create_task(self._debounced_write())
+    
+    async def _debounced_write(self):
+        """Execute a debounced write with rate limiting to protect EEPROM."""
+        try:
+            # Wait for debounce period
+            await asyncio.sleep(self._debounce_delay)
             
-        success = await self.hass.async_add_executor_job(self.coordinator.set_config_value, self._reg_id, value)
-        if success:
-            await asyncio.sleep(10)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set value %s for register %s", value, self._reg_id)
+            # Check if we need to respect minimum write interval
+            current_time = time.time()
+            time_since_last_write = current_time - self._last_write_time
+            
+            if time_since_last_write < self._min_write_interval:
+                remaining_wait = self._min_write_interval - time_since_last_write
+                _LOGGER.info("Rate limiting: waiting %.1f seconds before writing register %s", 
+                           remaining_wait, self._reg_id)
+                await asyncio.sleep(remaining_wait)
+            
+            # Perform the actual write
+            value = self._pending_value
+            if value is None:
+                return
+                
+            _LOGGER.info("Writing debounced value %.2f to register %s", value, self._reg_id)
+            success = await self.hass.async_add_executor_job(
+                self.coordinator.set_config_value, self._reg_id, value
+            )
+            
+            if success:
+                self._last_write_time = time.time()
+                self._last_set_value = value
+                self._pending_value = None
+                
+                # Wait before refresh to allow device to process the change
+                await asyncio.sleep(10)
+                await self.coordinator.async_request_refresh()
+                
+                _LOGGER.info("Successfully set register %s to %.2f with EEPROM protection", 
+                           self._reg_id, value)
+            else:
+                _LOGGER.error("Failed to set value %.2f for register %s", value, self._reg_id)
+                
+        except asyncio.CancelledError:
+            _LOGGER.debug("Debounced write cancelled for register %s", self._reg_id)
+        except Exception as err:
+            _LOGGER.error("Error in debounced write for register %s: %s", self._reg_id, err)
 
     @property
     def available(self):

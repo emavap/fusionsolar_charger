@@ -1,8 +1,15 @@
 from homeassistant import config_entries
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.exceptions import HomeAssistantError
 import voluptuous as vol
+import logging
+import requests
+import urllib3
 
 from .const import DOMAIN, CONF_INTERVAL
+
+_LOGGER = logging.getLogger(__name__)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 DATA_SCHEMA = vol.Schema({
     vol.Required(CONF_USERNAME): str,
@@ -16,8 +23,56 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         errors = {}
         if user_input is not None:
-            return self.async_create_entry(title=user_input[CONF_USERNAME], data=user_input)
+            try:
+                # Validate credentials
+                await self.hass.async_add_executor_job(
+                    self._validate_credentials, 
+                    user_input[CONF_USERNAME], 
+                    user_input[CONF_PASSWORD]
+                )
+                # Create entry if validation succeeds
+                return self.async_create_entry(title=user_input[CONF_USERNAME], data=user_input)
+            except InvalidCredentials:
+                errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error during validation")
+                errors["base"] = "unknown"
+                
         return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
+    
+    def _validate_credentials(self, username: str, password: str):
+        """Validate credentials by attempting authentication."""
+        url = "https://intl.fusionsolar.huawei.com:32800/rest/neteco/appauthen/v1/smapp/app/token"
+        payload = {
+            "userName": username,
+            "value": password,
+            "grantType": "password",
+            "verifyCode": "",
+            "appClientId": "86366133-B8B5-41FA-8EB9-E5A64229E3E1"
+        }
+        
+        try:
+            response = requests.post(url, json=payload, verify=False, 
+                                   headers={"Content-Type": "application/json"}, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            if "data" not in data or "accessToken" not in data["data"]:
+                raise InvalidCredentials("Invalid authentication response")
+                
+        except requests.exceptions.Timeout:
+            raise CannotConnect("Connection timeout")
+        except requests.exceptions.ConnectionError:
+            raise CannotConnect("Connection failed")
+        except requests.exceptions.HTTPError as err:
+            if err.response.status_code in [401, 403]:
+                raise InvalidCredentials("Invalid username or password")
+            raise CannotConnect(f"HTTP error: {err.response.status_code}")
+        except Exception as err:
+            _LOGGER.error("Validation error: %s", err)
+            raise CannotConnect("Unknown connection error")
 
     async def async_step_reauth(self, user_input=None):
         if user_input is not None:
@@ -29,3 +84,11 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="reauth_successful")
 
         return self.async_show_form(step_id="reauth", data_schema=DATA_SCHEMA)
+
+
+class InvalidCredentials(HomeAssistantError):
+    """Error to indicate invalid credentials."""
+
+
+class CannotConnect(HomeAssistantError):
+    """Error to indicate we cannot connect."""

@@ -95,6 +95,10 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         response = requests.post(url, json=payload, headers=self.headers, verify=False)
         response.raise_for_status()
         data = response.json()
+        
+        if not data.get("data", {}).get("list"):
+            raise ValueError("No stations found in account")
+        
         self.dn_id = data["data"]["list"][0]["dn"]
 
     def fetch_wallbox_info(self):
@@ -118,9 +122,24 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Wallbox response could not be parsed as JSON.")
             return {}
 
+        if not data.get("data") or not isinstance(data["data"], list) or len(data["data"]) == 0:
+            raise ValueError("No wallbox devices found in station")
+            
         wallbox = data["data"][0]
         self.wallbox_dn_id = wallbox["dnId"]
         self.param_values = wallbox.get("paramValues", {})
+        
+        # Log available register IDs for debugging
+        if self.param_values:
+            available_registers = list(self.param_values.keys())
+            _LOGGER.info("Available register IDs from charger: %s", sorted(available_registers))
+            
+            # Log some key values for debugging (using confirmed registers)
+            key_registers = ["20001", "538976598", "10009", "10010", "20012", "20017"]
+            for reg_id in key_registers:
+                if reg_id in self.param_values:
+                    _LOGGER.debug("Register %s value: %s", reg_id, self.param_values[reg_id])
+        
         return self.param_values
 
     def set_config_value(self, param_id: str, value, retries=3):

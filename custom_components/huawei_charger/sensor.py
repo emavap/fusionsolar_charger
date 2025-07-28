@@ -4,8 +4,11 @@ from homeassistant.const import (
     UnitOfPower, UnitOfEnergy, UnitOfElectricCurrent, UnitOfElectricPotential,
     UnitOfFrequency, UnitOfTemperature, UnitOfTime, PERCENTAGE
 )
+import logging
 
 from .const import DOMAIN, REGISTER_NAME_MAP
+
+_LOGGER = logging.getLogger(__name__)
 
 INTERESTING_SENSOR_REGISTERS = [
     # Core device information (confirmed in device data)
@@ -122,10 +125,37 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
                 if isinstance(raw_value, (int, float)):
                     return int(raw_value)
                     
+            # Special handling for Device Info register (2101251)
+            if self._reg_id == "2101251":
+                if isinstance(raw_value, str):
+                    # Extract key information from the device info
+                    lines = raw_value.split('\n')
+                    key_info = []
+                    for line in lines:
+                        if 'BoardType=' in line:
+                            key_info.append(line.split('=')[1])
+                        elif 'Model=' in line:
+                            key_info.append(line.split('=')[1])
+                        elif 'VendorName=' in line:
+                            key_info.append(line.split('=')[1])
+                    if key_info:
+                        return ' - '.join(key_info)
+                    # Fallback: just return first meaningful line
+                    for line in lines:
+                        if line.strip() and not line.startswith('/$') and '=' in line:
+                            return line.strip()[:200]  # Limit to 200 chars
+                    return "Device Info Available"
+                return str(raw_value)[:200]  # Fallback truncation
+                    
             # Default: return string values as-is, numeric as float
             if isinstance(raw_value, (int, float)):
                 return float(raw_value)
-            return str(raw_value)
+            
+            # Ensure string values don't exceed 255 characters
+            str_value = str(raw_value)
+            if len(str_value) > 255:
+                return str_value[:252] + "..."
+            return str_value
             
         except (ValueError, TypeError):
             _LOGGER.warning("Could not convert value for register %s: %s", self._reg_id, raw_value)

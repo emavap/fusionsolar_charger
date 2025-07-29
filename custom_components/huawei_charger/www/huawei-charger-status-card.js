@@ -23,7 +23,7 @@ class HuaweiChargerStatusCard extends HTMLElement {
 
     // Auto-detect available entities by searching for Huawei Charger entities
     const huaweiEntities = Object.keys(this._hass.states).filter(id => 
-      id.includes('huawei_charger') && this._hass.states[id].attributes.friendly_name?.includes('Huawei Charger')
+      id.includes('huawei_charger')
     );
     
     // Try to find the best entities to use
@@ -41,8 +41,32 @@ class HuaweiChargerStatusCard extends HTMLElement {
     const pluggedIn = findEntity(['plugged_in', 'plugged']);
     const dynamicPowerLimit = this._hass.states[`number.huawei_charger_dynamic_power_limit`];
     
-    // If no Huawei entities found, show helpful message
+    // Debug: If no key entities found, show available entities
+    if (!chargingStatus && !currentPower && !sessionEnergy) {
+      this.shadowRoot.innerHTML = `
+        <ha-card>
+          <div class="card-content">
+            <div class="error">
+              <h3>Status Card: Key entities not found</h3>
+              <p><strong>Looking for:</strong> charging_status, current_power, session_energy</p>
+              <p><strong>Available Huawei entities (${huaweiEntities.length}):</strong></p>
+              <ul style="text-align: left; margin: 8px 0; max-height: 200px; overflow-y: auto;">
+                ${huaweiEntities.map(id => `<li><code>${id}</code> = ${this._hass.states[id].state}</li>`).join('')}
+              </ul>
+            </div>
+          </div>
+        </ha-card>
+      `;
+      return;
+    }
+    
+    // If no Huawei entities found, show helpful message with debugging info
     if (huaweiEntities.length === 0) {
+      // Show all entities for debugging
+      const allEntities = Object.keys(this._hass.states).filter(id => 
+        id.includes('charger') || id.includes('huawei')
+      );
+      
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
@@ -50,6 +74,12 @@ class HuaweiChargerStatusCard extends HTMLElement {
               <h3>No Huawei Charger entities found</h3>
               <p>Make sure the Huawei Charger integration is installed and configured.</p>
               <p>Check Settings → Devices & Services → Integrations</p>
+              ${allEntities.length > 0 ? `
+                <p><strong>Found these charger-related entities:</strong></p>
+                <ul style="text-align: left; margin: 8px 0;">
+                  ${allEntities.slice(0, 10).map(id => `<li><code>${id}</code></li>`).join('')}
+                </ul>
+              ` : '<p><em>No charger-related entities found at all.</em></p>'}
             </div>
           </div>
         </ha-card>

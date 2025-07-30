@@ -24,6 +24,23 @@ class HuaweiChargerControlCard extends HTMLElement {
     
     // Skip updates if we're in the ignore period after user input
     if (this._ignoreUpdatesUntil && Date.now() < this._ignoreUpdatesUntil) {
+      // But still check if the value has changed to what we expect
+      if (this._pendingValue !== null) {
+        const huaweiEntities = Object.keys(hass.states).filter(id => 
+          id.includes('huawei_charger') && id.includes('dynamic_power_limit')
+        );
+        const dynamicEntity = huaweiEntities.length > 0 ? hass.states[huaweiEntities[0]] : null;
+        const currentValue = parseFloat(dynamicEntity?.state) || 0;
+        
+        if (Math.abs(currentValue - this._pendingValue) < 0.1) {
+          // Value matches - clear optimistic state and allow normal updates
+          this._pendingValue = null;
+          this._ignoreUpdatesUntil = null;
+          this._isUpdating = false;
+          this.render();
+          return;
+        }
+      }
       return;
     }
     
@@ -38,8 +55,10 @@ class HuaweiChargerControlCard extends HTMLElement {
         const currentValue = parseFloat(dynamicEntity?.state) || 0;
         
         if (Math.abs(currentValue - this._pendingValue) < 0.1) {
+          // Value matches what we expected - clear optimistic state immediately
           this._pendingValue = null;
           this._ignoreUpdatesUntil = null;
+          this._isUpdating = false;
         }
       }
       

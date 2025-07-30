@@ -2,6 +2,7 @@ class HuaweiChargerInfoCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
+    this._lastEntityStates = {};
   }
 
   setConfig(config) {
@@ -13,11 +14,59 @@ class HuaweiChargerInfoCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this.render();
+    
+    // Check if relevant entity states have changed
+    if (this._hasEntityStatesChanged(hass)) {
+      this.render();
+    }
   }
 
   getCardSize() {
     return this.config.show_diagnostic ? 5 : 3;
+  }
+
+  _hasEntityStatesChanged(hass) {
+    if (!hass) return false;
+    
+    // Get current device info entities
+    const huaweiEntities = Object.keys(hass.states).filter(id => 
+      id.includes('huawei_charger') && (
+        id.includes('device_name') ||
+        id.includes('serial_number') ||
+        id.includes('software_version') ||
+        id.includes('hardware_version') ||
+        id.includes('device_model') ||
+        id.includes('rated_power') ||
+        id.includes('temperature') ||
+        id.includes('lock_status') ||
+        id.includes('error_code') ||
+        id.includes('warning_code') ||
+        id.includes('voltage')
+      )
+    );
+    
+    // Check if any relevant entity states changed
+    let hasChanged = false;
+    for (const entityId of huaweiEntities) {
+      const currentState = hass.states[entityId];
+      if (!currentState) continue; // Skip if entity doesn't exist
+      
+      const lastState = this._lastEntityStates[entityId];
+      
+      if (!lastState || 
+          currentState.state !== lastState.state || 
+          JSON.stringify(currentState.attributes) !== JSON.stringify(lastState.attributes)) {
+        hasChanged = true;
+      }
+      
+      // Update cached state
+      this._lastEntityStates[entityId] = {
+        state: currentState.state,
+        attributes: { ...currentState.attributes }
+      };
+    }
+    
+    return hasChanged || Object.keys(this._lastEntityStates).length === 0;
   }
 
   render() {

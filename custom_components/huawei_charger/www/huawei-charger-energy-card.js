@@ -2,6 +2,7 @@ class HuaweiChargerEnergyCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
+    this._lastEntityStates = {};
   }
 
   setConfig(config) {
@@ -15,11 +16,53 @@ class HuaweiChargerEnergyCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this.render();
+    
+    // Check if relevant entity states have changed
+    if (this._hasEntityStatesChanged(hass)) {
+      this.render();
+    }
   }
 
   getCardSize() {
     return 4;
+  }
+
+  _hasEntityStatesChanged(hass) {
+    if (!hass) return false;
+    
+    // Get current energy monitoring entities
+    const huaweiEntities = Object.keys(hass.states).filter(id => 
+      id.includes('huawei_charger') && (
+        id.includes('session_energy') || 
+        id.includes('session_duration') ||
+        id.includes('total_energy') ||
+        id.includes('current_power') ||
+        id.includes('power')
+      )
+    );
+    
+    // Check if any relevant entity states changed
+    let hasChanged = false;
+    for (const entityId of huaweiEntities) {
+      const currentState = hass.states[entityId];
+      if (!currentState) continue; // Skip if entity doesn't exist
+      
+      const lastState = this._lastEntityStates[entityId];
+      
+      if (!lastState || 
+          currentState.state !== lastState.state || 
+          JSON.stringify(currentState.attributes) !== JSON.stringify(lastState.attributes)) {
+        hasChanged = true;
+      }
+      
+      // Update cached state
+      this._lastEntityStates[entityId] = {
+        state: currentState.state,
+        attributes: { ...currentState.attributes }
+      };
+    }
+    
+    return hasChanged || Object.keys(this._lastEntityStates).length === 0;
   }
 
   render() {

@@ -2,6 +2,8 @@ class HuaweiChargerControlCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
+    this._lastEntityStates = {};
+    this._isUpdating = false;
   }
 
   setConfig(config) {
@@ -10,11 +12,52 @@ class HuaweiChargerControlCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this.render();
+    
+    // Check if relevant entity states have changed
+    if (this._hasEntityStatesChanged(hass)) {
+      this.render();
+    }
   }
 
   getCardSize() {
     return 4;
+  }
+
+  _hasEntityStatesChanged(hass) {
+    if (!hass) return false;
+    
+    // Get current power control entities
+    const huaweiEntities = Object.keys(hass.states).filter(id => 
+      id.includes('huawei_charger') && (
+        id.includes('dynamic_power_limit') || 
+        id.includes('fixed_max_charging_power') || 
+        id.includes('fixed_max_power') ||
+        id.includes('plugged_in')
+      )
+    );
+    
+    // Check if any relevant entity states changed
+    let hasChanged = false;
+    for (const entityId of huaweiEntities) {
+      const currentState = hass.states[entityId];
+      if (!currentState) continue; // Skip if entity doesn't exist
+      
+      const lastState = this._lastEntityStates[entityId];
+      
+      if (!lastState || 
+          currentState.state !== lastState.state || 
+          JSON.stringify(currentState.attributes) !== JSON.stringify(lastState.attributes)) {
+        hasChanged = true;
+      }
+      
+      // Update cached state
+      this._lastEntityStates[entityId] = {
+        state: currentState.state,
+        attributes: { ...currentState.attributes }
+      };
+    }
+    
+    return hasChanged || Object.keys(this._lastEntityStates).length === 0;
   }
 
   render() {
@@ -37,6 +80,8 @@ class HuaweiChargerControlCard extends HTMLElement {
                          this._hass.states[this.config.dynamic_power_entity];
     const fixedEntity = findEntity(['fixed_max_charging_power', 'fixed_max_power']) || 
                        this._hass.states[this.config.fixed_power_entity];
+    const pluggedInEntity = findEntity(['plugged_in']) || 
+                           this._hass.states[this.config.plugged_in_entity];
     
     // If no power control entities found, show helpful message
     if (!dynamicEntity) {
@@ -60,6 +105,26 @@ class HuaweiChargerControlCard extends HTMLElement {
 
     const dynamicValue = parseFloat(dynamicEntity.state) || 0;
     const fixedValue = parseFloat(fixedEntity?.state) || 0;
+    const pluggedInValue = pluggedInEntity?.state;
+    
+    // Interpret plugged-in status values
+    let cableStatus = 'Disconnected';
+    let cableIcon = 'mdi:power-plug-off';
+    let cableColor = 'disconnected';
+    
+    if (pluggedInValue === '1') {
+      cableStatus = 'Connected';
+      cableIcon = 'mdi:power-plug';
+      cableColor = 'connected';
+    } else if (pluggedInValue === '3') {
+      cableStatus = 'Charging';
+      cableIcon = 'mdi:battery-charging';
+      cableColor = 'charging';
+    } else if (pluggedInValue === '2') {
+      cableStatus = 'Ready';
+      cableIcon = 'mdi:power-plug';
+      cableColor = 'ready';
+    }
     const minValue = dynamicEntity.attributes.min || 1.6;
     const maxValue = dynamicEntity.attributes.max || 7.4;
     const step = dynamicEntity.attributes.step || 0.1;
@@ -192,6 +257,43 @@ class HuaweiChargerControlCard extends HTMLElement {
           opacity: 0.6;
           margin-top: 4px;
         }
+        .updating-indicator {
+          margin-left: 8px;
+          animation: spin 1s linear infinite;
+          font-size: 0.9em;
+          color: var(--primary-color);
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .preset-button.disabled {
+          opacity: 0.5;
+          pointer-events: none;
+        }
+        input[disabled] {
+          opacity: 0.6;
+        }
+        .cable-status {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .cable-status ha-icon {
+          --mdc-icon-size: 16px;
+        }
+        .cable-status.connected {
+          color: #2196F3;
+        }
+        .cable-status.ready {
+          color: #FF9800;
+        }
+        .cable-status.charging {
+          color: #4CAF50;
+        }
+        .cable-status.disconnected {
+          color: #F44336;
+        }
       </style>
       
       <ha-card>
@@ -212,10 +314,12 @@ class HuaweiChargerControlCard extends HTMLElement {
                 step="${step}" 
                 value="${dynamicValue}"
                 id="dynamic-slider"
+                ${this._isUpdating ? 'disabled' : ''}
               >
               <div class="power-display">
                 <span id="dynamic-display">${dynamicValue.toFixed(1)}</span>
                 <span class="power-unit">kW</span>
+                ${this._isUpdating ? '<span class="updating-indicator">⟳</span>' : ''}
               </div>
             </div>
             <div class="slider-labels">
@@ -226,7 +330,7 @@ class HuaweiChargerControlCard extends HTMLElement {
 
           <div class="preset-buttons">
             ${presets.map(preset => `
-              <div class="preset-button ${Math.abs(dynamicValue - preset.value) < 0.1 ? 'active' : ''}" 
+              <div class="preset-button ${Math.abs(dynamicValue - preset.value) < 0.1 ? 'active' : ''} ${this._isUpdating ? 'disabled' : ''}" 
                    data-value="${preset.value}">
                 <ha-icon class="preset-icon" icon="${preset.icon}"></ha-icon>
                 <div class="preset-label">${preset.label}</div>
@@ -246,6 +350,13 @@ class HuaweiChargerControlCard extends HTMLElement {
                 <span class="setting-value">${fixedValue.toFixed(1)} kW</span>
               </div>
             ` : ''}
+            <div class="setting-row">
+              <span class="setting-label">Cable Status:</span>
+              <span class="setting-value cable-status ${cableColor}">
+                <ha-icon icon="${cableIcon}"></ha-icon>
+                ${cableStatus}
+              </span>
+            </div>
           </div>
         </div>
       </ha-card>
@@ -275,6 +386,8 @@ class HuaweiChargerControlCard extends HTMLElement {
     // Preset button clicks
     presetButtons.forEach(button => {
       button.addEventListener('click', () => {
+        if (this._isUpdating || button.classList.contains('disabled')) return;
+        
         const value = parseFloat(button.dataset.value);
         slider.value = value;
         display.textContent = value.toFixed(1);
@@ -292,8 +405,8 @@ class HuaweiChargerControlCard extends HTMLElement {
     });
   }
 
-  setPowerLimit(value) {
-    if (!this._hass) return;
+  async setPowerLimit(value) {
+    if (!this._hass || this._isUpdating) return;
     
     // Find the dynamic power limit entity
     const huaweiEntities = Object.keys(this._hass.states).filter(id => 
@@ -304,10 +417,29 @@ class HuaweiChargerControlCard extends HTMLElement {
     
     if (!dynamicEntityId) return;
     
-    this._hass.callService('number', 'set_value', {
-      entity_id: dynamicEntityId,
-      value: value
-    });
+    // Set updating state
+    this._isUpdating = true;
+    this.render();
+    
+    try {
+      await this._hass.callService('number', 'set_value', {
+        entity_id: dynamicEntityId,
+        value: value
+      });
+      
+      // Wait for the coordinator delay (as mentioned in CLAUDE.md)
+      // Plus extra time for entity state to update
+      setTimeout(() => {
+        this._isUpdating = false;
+        // Force a re-render to show updated state
+        this.render();
+      }, 12000); // 12 seconds to account for 10s delay + propagation
+      
+    } catch (error) {
+      console.error('Failed to set power limit:', error);
+      this._isUpdating = false;
+      this.render();
+    }
   }
 }
 

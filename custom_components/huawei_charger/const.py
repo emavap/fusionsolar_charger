@@ -38,7 +38,7 @@ REGISTER_NAME_MAP = {
     "15101": "Temperature Offset",
     "2101251": "Device Info",
     "2101252": "Serial Number Alt",
-    "2101271": "Internal Temperature",
+    "2101271": "Temperature",
     "2101524": "Network Status 1",
     "2101526": "Network Status 2",
     "2101760": "Network IP",

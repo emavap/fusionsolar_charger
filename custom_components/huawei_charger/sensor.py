@@ -22,7 +22,7 @@ MAIN_SENSOR_REGISTERS = [
     "20012",      # Charging Status
     "20017",      # Plugged In
     "10003",      # Rated Power
-    "20014",      # Temperature
+    "2101271",    # Internal Temperature (more reliable than 20014)
 ]
 
 # Diagnostic sensors - hidden by default (technical/configuration data)
@@ -41,7 +41,7 @@ DIAGNOSTIC_SENSOR_REGISTERS = [
     "20013",      # Lock Status
     "20015",      # Error Code
     "20016",      # Warning Code
-    "2101271",    # Internal Temperature
+    "20014",      # Temperature (problematic sensor, moved to diagnostic)
     "15101",      # Temperature Offset
     
     # Network and IP configuration
@@ -185,7 +185,21 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
             # For temperature values, ensure proper formatting
             if self._reg_id in ["20014", "2101271", "15101"]:
                 if isinstance(raw_value, (int, float)):
-                    return round(float(raw_value), 1)
+                    temp_value = float(raw_value)
+                    
+                    # Register 20014 appears to have issues, apply temperature offset if available
+                    if self._reg_id == "20014":
+                        offset_value = self.coordinator.data.get("15101")
+                        if offset_value is not None:
+                            try:
+                                offset = float(offset_value)
+                                temp_value = temp_value - offset  # Apply offset correction
+                                _LOGGER.debug("Temperature %s: raw=%s, offset=%s, corrected=%s", 
+                                            self._reg_id, raw_value, offset, temp_value)
+                            except (ValueError, TypeError):
+                                _LOGGER.warning("Invalid temperature offset value: %s", offset_value)
+                    
+                    return round(temp_value, 1)
                     
             # For energy values, ensure proper formatting
             if self._reg_id in ["10008", "10009"]:

@@ -4,6 +4,8 @@ class HuaweiChargerControlCard extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._lastEntityStates = {};
     this._isUpdating = false;
+    this._pendingValue = null;
+    this._ignoreUpdatesUntil = null;
   }
 
   setConfig(config) {
@@ -20,8 +22,27 @@ class HuaweiChargerControlCard extends HTMLElement {
       return;
     }
     
+    // Skip updates if we're in the ignore period after user input
+    if (this._ignoreUpdatesUntil && Date.now() < this._ignoreUpdatesUntil) {
+      return;
+    }
+    
     // Check if relevant entity states have changed
     if (this._hasEntityStatesChanged(hass, oldHass)) {
+      // Clear pending value if the real update matches what we expected
+      if (this._pendingValue !== null) {
+        const huaweiEntities = Object.keys(hass.states).filter(id => 
+          id.includes('huawei_charger') && id.includes('dynamic_power_limit')
+        );
+        const dynamicEntity = huaweiEntities.length > 0 ? hass.states[huaweiEntities[0]] : null;
+        const currentValue = parseFloat(dynamicEntity?.state) || 0;
+        
+        if (Math.abs(currentValue - this._pendingValue) < 0.1) {
+          this._pendingValue = null;
+          this._ignoreUpdatesUntil = null;
+        }
+      }
+      
       this.render();
     }
   }
@@ -113,7 +134,8 @@ class HuaweiChargerControlCard extends HTMLElement {
       return;
     }
 
-    const dynamicValue = parseFloat(dynamicEntity.state) || 0;
+    // Use pending value if we have one, otherwise use actual entity state
+    const dynamicValue = this._pendingValue !== null ? this._pendingValue : (parseFloat(dynamicEntity.state) || 0);
     const fixedValue = parseFloat(fixedEntity?.state) || 0;
     const pluggedInValue = pluggedInEntity?.state;
     
@@ -390,7 +412,7 @@ class HuaweiChargerControlCard extends HTMLElement {
     // Slider change event (when user releases)
     slider?.addEventListener('change', (e) => {
       const value = parseFloat(e.target.value);
-      this.setPowerLimit(value);
+      this._setPowerLimitOptimistic(value);
     });
 
     // Preset button clicks
@@ -399,10 +421,7 @@ class HuaweiChargerControlCard extends HTMLElement {
         if (this._isUpdating || button.classList.contains('disabled')) return;
         
         const value = parseFloat(button.dataset.value);
-        slider.value = value;
-        display.textContent = value.toFixed(1);
-        this.updatePresetButtons(value);
-        this.setPowerLimit(value);
+        this._setPowerLimitOptimistic(value);
       });
     });
   }
@@ -413,6 +432,18 @@ class HuaweiChargerControlCard extends HTMLElement {
       const buttonValue = parseFloat(button.dataset.value);
       button.classList.toggle('active', Math.abs(currentValue - buttonValue) < 0.1);
     });
+  }
+
+  _setPowerLimitOptimistic(value) {
+    // Set the pending value and ignore updates for a period
+    this._pendingValue = value;
+    this._ignoreUpdatesUntil = Date.now() + 15000; // 15 seconds
+    
+    // Update UI immediately
+    this.render();
+    
+    // Actually set the power limit
+    this.setPowerLimit(value);
   }
 
   async setPowerLimit(value) {
@@ -441,13 +472,16 @@ class HuaweiChargerControlCard extends HTMLElement {
       // Plus extra time for entity state to update
       setTimeout(() => {
         this._isUpdating = false;
-        // Force a re-render to show updated state
-        this.render();
+        // Don't force re-render here, let the normal update cycle handle it
+        // The pending value and ignore period will handle the transition
       }, 12000); // 12 seconds to account for 10s delay + propagation
       
     } catch (error) {
       console.error('Failed to set power limit:', error);
       this._isUpdating = false;
+      // Clear pending value on error
+      this._pendingValue = null;
+      this._ignoreUpdatesUntil = null;
       this.render();
     }
   }

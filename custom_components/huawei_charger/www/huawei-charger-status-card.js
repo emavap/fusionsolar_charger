@@ -11,10 +11,17 @@ class HuaweiChargerStatusCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
     
+    // Always render on first load
+    if (!oldHass) {
+      this.render();
+      return;
+    }
+    
     // Check if relevant entity states have changed
-    if (this._hasEntityStatesChanged(hass)) {
+    if (this._hasEntityStatesChanged(hass, oldHass)) {
       this.render();
     }
   }
@@ -23,8 +30,8 @@ class HuaweiChargerStatusCard extends HTMLElement {
     return 3;
   }
 
-  _hasEntityStatesChanged(hass) {
-    if (!hass) return false;
+  _hasEntityStatesChanged(hass, oldHass) {
+    if (!hass || !oldHass) return false;
     
     // Get current status monitoring entities
     const huaweiEntities = Object.keys(hass.states).filter(id => 
@@ -39,28 +46,21 @@ class HuaweiChargerStatusCard extends HTMLElement {
       )
     );
     
-    // Check if any relevant entity states changed
-    let hasChanged = false;
+    // Check if any relevant entity states changed by comparing with previous hass
     for (const entityId of huaweiEntities) {
       const currentState = hass.states[entityId];
-      if (!currentState) continue; // Skip if entity doesn't exist
+      const previousState = oldHass.states[entityId];
       
-      const lastState = this._lastEntityStates[entityId];
+      if (!currentState && !previousState) continue; // Both don't exist
+      if (!currentState || !previousState) return true; // One exists, one doesn't
       
-      if (!lastState || 
-          currentState.state !== lastState.state || 
-          JSON.stringify(currentState.attributes) !== JSON.stringify(lastState.attributes)) {
-        hasChanged = true;
+      // Compare state values (these are the main values we display)
+      if (currentState.state !== previousState.state) {
+        return true;
       }
-      
-      // Update cached state
-      this._lastEntityStates[entityId] = {
-        state: currentState.state,
-        attributes: { ...currentState.attributes }
-      };
     }
     
-    return hasChanged || Object.keys(this._lastEntityStates).length === 0;
+    return false;
   }
 
   render() {

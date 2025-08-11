@@ -28,72 +28,72 @@ MAIN_SENSOR_REGISTERS = [
 # Diagnostic sensors - hidden by default (technical/configuration data)
 DIAGNOSTIC_SENSOR_REGISTERS = [
     # Device identification
-    "20011",      # Device Name
-    "10001",      # Software Version
-    "10002",      # Hardware Version
-    "20029",      # Device Serial Number
-    "2101252",    # Serial Number Alt
-    "2101251",    # Device Info
-    "10007",      # Device Type
-    "10012",      # Device Model
+    "20011",      # Register 20011
+    "10001",      # Register 10001
+    "10002",      # Register 10002
+    "20029",      # Register 20029
+    "2101252",    # Register 2101252
+    "2101251",    # Register 2101251
+    "10007",      # Register 10007
+    "10012",      # Register 10012
     
     # Status and error codes
-    "20013",      # Lock Status
-    "20015",      # Error Code
-    "20016",      # Warning Code
-    "20014",      # Temperature (problematic sensor, moved to diagnostic)
-    "15101",      # Temperature Offset
+    "20013",      # Register 20013
+    "20015",      # Register 20015
+    "20016",      # Register 20016
+    "20014",      # Register 20014 (problematic sensor, moved to diagnostic)
+    "15101",      # Register 15101
     
     # Network and IP configuration
-    "538976516",  # Device IP
-    "2101760",    # Network IP
-    "2101763",    # Network Port
-    "2101524",    # Network Status 1
-    "2101526",    # Network Status 2
-    "538976280",  # Management IP
-    "538976281",  # Server Address
-    "538976533",  # Local IP
-    "538976534",  # HTTP Port
+    "538976516",  # Register 538976516
+    "2101760",    # Register 2101760
+    "2101763",    # Register 2101763
+    "2101524",    # Register 2101524
+    "2101526",    # Register 2101526
+    "538976280",  # Register 538976280
+    "538976281",  # Register 538976281
+    "538976533",  # Register 538976533
+    "538976534",  # Register 538976534
     
     # Power configuration
-    "538976569",  # Min Power
-    "538976570",  # Max Power
-    "538976576",  # Power Mode
+    "538976569",  # Register 538976569
+    "538976570",  # Register 538976570
+    "538976576",  # Register 538976576
     
     # System configuration
-    "10047",      # Phase Count
-    "538976288",  # Port Number
-    "538976289",  # Protocol Version
-    "538976308",  # Device ID
-    "538976515",  # DHCP Enable
-    "538976517",  # Subnet Mask
-    "538976518",  # Gateway
-    "538976519",  # DNS Primary
-    "538976520",  # DNS Secondary
-    "538976558",  # SSL Enable
-    "538976790",  # System Status
-    "538976800",  # Online Status
+    "10047",      # Register 10047
+    "538976288",  # Register 538976288
+    "538976289",  # Register 538976289
+    "538976308",  # Register 538976308
+    "538976515",  # Register 538976515
+    "538976517",  # Register 538976517
+    "538976518",  # Register 538976518
+    "538976519",  # Register 538976519
+    "538976520",  # Register 538976520
+    "538976558",  # Register 538976558
+    "538976790",  # Register 538976790
+    "538976800",  # Register 538976800
     
     # Reserved/Extended registers
-    "10035",      # Reserved 1
-    "10034",      # Reserved 2
-    "10100",      # Reserved 3
-    "538976523",  # Reserved IP
-    "538976564",  # Reserved Config 1
-    "538976568",  # Reserved Config 2
-    "539006279",  # Remote IP
-    "539006281",  # Session ID
-    "539006282",  # Connection Status
-    "539006283",  # Auth Status
-    "539006284",  # Protocol Status
-    "539006285",  # Data Status
-    "539006286",  # Error Status
-    "539006287",  # Warning Status
-    "539006288",  # Info Status
-    "539006290",  # System Mode
-    "539006291",  # Control Mode
-    "539006292",  # Reserved Status
-    "539006293",  # Reserved Info
+    "10035",      # Register 10035
+    "10034",      # Register 10034
+    "10100",      # Register 10100
+    "538976523",  # Register 538976523
+    "538976564",  # Register 538976564
+    "538976568",  # Register 538976568
+    "539006279",  # Register 539006279
+    "539006281",  # Register 539006281
+    "539006282",  # Register 539006282
+    "539006283",  # Register 539006283
+    "539006284",  # Register 539006284
+    "539006285",  # Register 539006285
+    "539006286",  # Register 539006286
+    "539006287",  # Register 539006287
+    "539006288",  # Register 539006288
+    "539006290",  # Register 539006290
+    "539006291",  # Register 539006291
+    "539006292",  # Register 539006292
+    "539006293",  # Register 539006293
 ]
 
 # Register configurations with units and device classes
@@ -141,8 +141,11 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
         self.coordinator = coordinator
         self._reg_id = reg_id
         self._is_diagnostic = is_diagnostic
-        base_name = REGISTER_NAME_MAP.get(reg_id, f"Register {reg_id}")
-        self._attr_name = f"Huawei Charger {base_name}"
+        # Use register numbers for diagnostic sensors, mapped names for main sensors
+        if is_diagnostic:
+            self._attr_name = f"Register {reg_id}"
+        else:
+            self._attr_name = REGISTER_NAME_MAP.get(reg_id, f"Register {reg_id}")
         self._attr_unique_id = f"{coordinator.entry.entry_id}_sensor_{reg_id}"
         
         # Set entity category for diagnostic sensors

@@ -4,139 +4,138 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Home Assistant custom integration** for **Huawei wallbox chargers** (SCharger 7kW/22kW) that connects through the FusionSolar portal API. It provides monitoring sensors and writable power control entities.
-
-## Architecture
-
-The integration follows Home Assistant's standard custom component structure:
-
-- **Coordinator Pattern**: `coordinator.py` manages API authentication and data fetching using `DataUpdateCoordinator`
-- **Config Flow**: `config_flow.py` handles user setup with credential validation
-- **Platform Entities**: `sensor.py` (read-only metrics) and `number.py` (writable power controls)
-- **Constants**: `const.py` defines register mappings and API endpoints
-- **Custom Frontend**: `www/` contains JavaScript cards for enhanced dashboard experience
-
-### Key Components
-
-1. **HuaweiChargerCoordinator** (`coordinator.py:19`):
-   - Authenticates with FusionSolar API
-   - Fetches device parameter values via register IDs
-   - Handles reauthentication on token expiry
-   - Implements retry logic and error handling
-
-2. **Entity Categories**:
-   - **Main Sensors**: Core charging data (voltage, energy, status) - visible by default
-   - **Diagnostic Sensors**: Technical/config data (device info, network settings) - hidden by default
-   - **Number Entities**: Writable power limits with EEPROM protection
-
-3. **Register System**: Device data accessed via numeric register IDs (e.g., "20012" = Charging Status)
+This is a **Home Assistant Custom Integration** for monitoring and controlling Huawei SCharger wallbox chargers through the FusionSolar API. The integration provides real-time monitoring of charging status, power consumption, and allows remote control of charging power limits.
 
 ## Development Commands
 
-### Testing Integration
-```bash
-# Debug script requires credentials in environment variables
-export FUSIONSOLAR_USERNAME='your_username'
-export FUSIONSOLAR_PASSWORD='your_password'
-python debug_integration.py
-```
+Since this is a Home Assistant custom integration, there are no traditional build/test commands. Development workflow involves:
 
-### Home Assistant Development
-```bash
-# Copy integration to HA config (development setup)
-cp -r custom_components/huawei_charger /path/to/homeassistant/config/custom_components/
+1. **Installation Testing**: Copy the `custom_components/huawei_charger` folder to a Home Assistant instance's custom_components directory and restart HA
+2. **Validation**: Use Home Assistant's built-in component validation when loading the integration
+3. **Logging**: Enable debug logging in Home Assistant configuration.yaml:
+   ```yaml
+   logger:
+     logs:
+       custom_components.huawei_charger: debug
+   ```
 
-# Check HA logs for integration issues
-tail -f /path/to/homeassistant/home-assistant.log | grep huawei_charger
-```
+## Architecture Overview
 
-## Critical Implementation Details
+### Core Components
 
-### API Authentication Flow
-1. POST to `intl.fusionsolar.huawei.com:32800` with credentials
-2. Extract `accessToken` and `regionFloatIp` from response
-3. Use region IP for subsequent API calls
-4. Handle token expiry with automatic reauthentication
+**Data Flow Architecture:**
+- `coordinator.py` - Central data coordinator using Home Assistant's DataUpdateCoordinator pattern
+  - Handles authentication with FusionSolar API
+  - Manages periodic data fetching and automatic token refresh
+  - Implements retry logic with exponential backoff
+  - Provides unified data access for all entities
 
-### EEPROM Protection (`number.py:38-44`)
-- **5-second debounce** delay for power limit changes
-- **30-second minimum interval** between writes
-- **Value deduplication** to prevent redundant writes
-- Protects device memory from excessive write cycles
+**Entity Types:**
+- `sensor.py` - Read-only sensors (voltage, energy, status, temperature)
+  - Split into main sensors (visible by default) and diagnostic sensors (hidden)
+  - Uses register mapping from const.py for human-readable names
+- `number.py` - Writable power control entities with EEPROM protection
+  - Implements debouncing and rate limiting to protect device memory
+  - Supports both Fixed Max Power (register 538976598) and Dynamic Power Limit (register 20001)
 
-### Entity Availability Logic
-- Simple check: `coordinator.last_update_success and coordinator.data.get(reg_id) is not None`
-- Entities show as unavailable when register data is missing
-- Clean failure handling via `UpdateFailed` exceptions
+**Configuration:**
+- `config_flow.py` - Handles user setup and credential validation
+- `const.py` - Central registry of device registers and their mappings
+- `__init__.py` - Integration setup, platform forwarding, and custom card registration
 
-### Register Categories
-- **Main sensors**: Essential charging info (always visible)
-- **Diagnostic sensors**: Technical data (hidden by default via `EntityCategory.DIAGNOSTIC`)
-- **Register mappings**: Defined in `REGISTER_NAME_MAP` with human-readable names
+### Key Technical Details
+
+**Authentication Flow:**
+1. Username/password → FusionSolar token endpoint
+2. Token → Regional server IP discovery  
+3. Station DN lookup → Device DN discovery
+4. Device DN → Register value fetching/setting
+
+**Register System:**
+The device exposes configuration and sensor data through numbered registers. Key registers:
+
+*Main Sensors (visible by default):*
+- `2101259` - Phase A Voltage
+- `2101260` - Phase B Voltage  
+- `2101261` - Phase C Voltage
+- `10008` - Total Energy Charged
+- `10009` - Session Energy
+- `10010` - Session Duration
+- `20012` - Charging Status
+- `20017` - Plugged In
+- `10003` - Rated Power
+- `2101271` - Internal Temperature
+
+*Writable Control Registers:*
+- `538976598` - Fixed Max Charging Power (writable)
+- `20001` - Dynamic Power Limit (writable)
+
+*Diagnostic Registers (hidden by default):*
+Device identification: `20011`, `10001`, `10002`, `20029`, `2101252`, `2101251`, `10007`, `10012`
+Status/error codes: `20013`, `20015`, `20016`, `20014`, `15101`
+Network/IP config: `538976516`, `2101760`, `2101763`, `2101524`, `2101526`, `538976280`, `538976281`, `538976533`, `538976534`
+Power config: `538976569`, `538976570`, `538976576`
+System config: `10047`, `538976288`, `538976289`, `538976308`, `538976515`, `538976517`, `538976518`, `538976519`, `538976520`, `538976558`, `538976790`, `538976800`
+Extended/reserved: `10035`, `10034`, `10100`, `538976523`, `538976564`, `538976568`, `539006279`, `539006281`, `539006282`, `539006283`, `539006284`, `539006285`, `539006286`, `539006287`, `539006288`, `539006290`, `539006291`, `539006292`, `539006293`
+
+**EEPROM Protection:**
+The number entities implement sophisticated protection against wearing out the device's memory:
+- 5-second debouncing delay before writing values
+- 30-second minimum interval between writes
+- Value comparison to avoid duplicate writes
+- Async task management for pending writes
 
 ### Custom Frontend Cards
-- Auto-registered during integration setup via `register_custom_cards()`
-- Copied to HA `www/` directory automatically  
-- Provides enhanced dashboard experience with real-time controls
 
-## Configuration
+The integration includes 4 custom Lovelace cards (in `www/` directory):
+- **Status Card**: Real-time charging status and cable connection
+- **Control Card**: Power limit adjustment interface
+- **Energy Card**: Energy consumption tracking and statistics  
+- **Info Card**: Device information and technical specifications
 
-### Required Credentials
-- **Username**: FusionSolar portal login
-- **Password**: FusionSolar portal password  
-- **Update Interval**: Polling frequency (10-3600 seconds, default 30)
+Cards are automatically registered with Home Assistant's frontend during integration setup.
 
-### Key Register IDs
-- `538976598`: Fixed Max Charging Power (writable)
-- `20001`: Dynamic Power Limit (writable)
-- `20012`: Charging Status
-- `20017`: Plugged In Status
-- `10008`: Total Energy Charged
-- `2101259-2101261`: Phase A/B/C Voltages
+### Integration Patterns
 
-## Security Notes
+**Home Assistant Best Practices:**
+- Uses DataUpdateCoordinator for efficient data management
+- Implements proper device_info for device registry
+- Follows entity naming conventions with unique_id generation
+- Supports config flow for user-friendly setup
+- Includes proper error handling and logging
+- Uses entity categories (diagnostic) for UI organization
 
-- **SSL verification disabled** for FusionSolar API (required due to Huawei's server config)
-- **No local credentials storage** - uses Home Assistant's secure config entry system
-- **API rate limiting** implemented to respect service limits
+**API Communication:**
+- FusionSolar API uses HTTPS with token-based authentication
+- Handles regional server routing automatically
+- Implements proper session management with cookies
+- Uses application/json for auth, application/x-www-form-urlencoded for device operations
 
-## File Structure
-```
-custom_components/huawei_charger/
-├── __init__.py           # Integration setup & custom card registration
-├── manifest.json         # Integration metadata
-├── config_flow.py        # User setup flow with validation
-├── coordinator.py        # API client & data coordination
-├── const.py             # Constants & register mappings  
-├── sensor.py            # Read-only sensor entities
-├── number.py            # Writable number entities (power limits)
-├── services.yaml        # Service definitions
-├── strings.json         # UI text translations
-├── translations/en.json # English translations
-└── www/                 # Custom Lovelace cards
-    ├── README.md
-    └── *.js            # JavaScript card implementations
-```
+## Key Files and Locations
 
-## Common Issues
+- `custom_components/huawei_charger/coordinator.py:19` - Main HuaweiChargerCoordinator class
+- `custom_components/huawei_charger/const.py:9` - REGISTER_NAME_MAP with all device registers
+- `custom_components/huawei_charger/number.py:46` - Power limit validation logic
+- `custom_components/huawei_charger/__init__.py:21` - Custom card registration system
+- `dashboard_example.yaml` - Complete dashboard configuration examples
+- `DASHBOARD.md` - Comprehensive dashboard setup documentation
 
-### Entity Shows "Unknown" Value
-- Check register ID exists in device data via debug script
-- Verify register name mapping in `const.py:REGISTER_NAME_MAP`
-- Some registers may not be available on all device models
+## Important Considerations
 
-### Authentication Failures
-- Verify credentials work in FusionSolar web portal
-- Check if account has wallbox device permissions
-- API may rate-limit after multiple failed attempts
+**Device Communication:**
+- The integration communicates with Huawei's cloud API, not directly with the device
+- Requires valid FusionSolar account credentials
+- Update intervals should be reasonable (30+ seconds) to avoid API rate limiting
+- Device must be properly configured in FusionSolar portal
 
-### Slow Entity Updates  
-- Default 30-second polling interval to avoid API rate limits
-- Device responses can be slow (10+ seconds)
-- Network connectivity to FusionSolar servers affects performance
+**Power Control Safety:**
+- Power limit changes are rate-limited to protect device EEPROM
+- Values are validated against device capabilities before sending
+- The integration supports both 7kW and 22kW charger variants
+- Always verify power limits match your electrical installation capacity
 
-## Known Working State
-- This integration was working correctly at commit `b874845`
-- Avoid overengineering error handling or availability logic
-- Keep entity availability checks simple and predictable
-- Use proper `UpdateFailed` exceptions for coordinator failures
+**Home Assistant Integration:**
+- Requires Home Assistant 2023.0.0 or later
+- Custom cards require browser refresh after first installation
+- Integration data persists across Home Assistant restarts
+- Supports HACS (Home Assistant Community Store) for easy installation

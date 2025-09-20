@@ -46,14 +46,16 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
     def _set_power_limits(self):
         """Set power limits based on device capabilities from registers."""
         # Default fallback values
-        min_power = 1.6
+        # Allow 0W for dynamic power limit to enable complete charging stop
+        min_power = 0.0 if self._reg_id == REG_DYNAMIC_POWER_LIMIT else 1.6
         max_power = 7.4
         
         try:
             # Try to get limits from device registers
             if self.coordinator.data:
                 # Min power from register 538976569
-                if "538976569" in self.coordinator.data:
+                # For dynamic power limit, allow 0W override
+                if "538976569" in self.coordinator.data and self._reg_id != REG_DYNAMIC_POWER_LIMIT:
                     device_min = float(self.coordinator.data["538976569"])
                     if device_min > 0:
                         min_power = device_min

@@ -176,12 +176,13 @@ class HuaweiChargerControlCard extends HTMLElement {
       cableIcon = 'mdi:power-plug';
       cableColor = 'ready';
     }
-    const minValue = dynamicEntity.attributes.min || 1.6;
+    const minValue = dynamicEntity.attributes.min || 0;
     const maxValue = dynamicEntity.attributes.max || 7.4;
     const step = dynamicEntity.attributes.step || 0.1;
 
     // Preset power levels
     const presets = [
+      { label: 'Stop', value: 0, icon: 'mdi:stop' },
       { label: 'Eco', value: Math.min(2.0, maxValue), icon: 'mdi:leaf' },
       { label: 'Normal', value: Math.min(3.7, maxValue), icon: 'mdi:flash' },
       { label: 'Fast', value: Math.min(7.4, maxValue), icon: 'mdi:lightning-bolt' },

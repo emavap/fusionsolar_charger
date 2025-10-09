@@ -9,11 +9,18 @@ from .const import DOMAIN, CONF_INTERVAL, DEFAULT_REQUEST_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 
+DEFAULT_INTERVAL = 30
+
 DATA_SCHEMA = vol.Schema({
     vol.Required(CONF_USERNAME): str,
     vol.Required(CONF_PASSWORD): str,
-    vol.Optional(CONF_INTERVAL, default=30): int,
+    vol.Optional(CONF_INTERVAL, default=DEFAULT_INTERVAL): vol.All(int, vol.Range(min=10, max=3600)),
     vol.Optional(CONF_VERIFY_SSL, default=False): bool,
+})
+
+REAUTH_SCHEMA = vol.Schema({
+    vol.Required(CONF_USERNAME): str,
+    vol.Required(CONF_PASSWORD): str,
 })
 
 class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -35,8 +42,18 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     user_input[CONF_PASSWORD],
                     user_input[CONF_VERIFY_SSL],
                 )
-                # Create entry if validation succeeds
-                return self.async_create_entry(title=user_input[CONF_USERNAME], data=user_input)
+                interval = user_input.get(CONF_INTERVAL, DEFAULT_INTERVAL)
+                verify_ssl = user_input.get(CONF_VERIFY_SSL, False)
+                options = {
+                    CONF_INTERVAL: interval,
+                    CONF_VERIFY_SSL: verify_ssl,
+                }
+                entry_data = dict(user_input)
+                return self.async_create_entry(
+                    title=user_input[CONF_USERNAME],
+                    data=entry_data,
+                    options=options,
+                )
             except InvalidCredentials:
                 errors["base"] = "invalid_auth"
             except CannotConnect:
@@ -46,7 +63,7 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
                 
         return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
-    
+
     def _validate_credentials(self, username: str, password: str, verify_ssl: bool):
         """Validate credentials by attempting authentication."""
         url = "https://intl.fusionsolar.huawei.com:32800/rest/neteco/appauthen/v1/smapp/app/token"
@@ -96,10 +113,25 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 entry for entry in self._async_current_entries()
                 if entry.data[CONF_USERNAME] == user_input[CONF_USERNAME]
             )
-            self.hass.config_entries.async_update_entry(existing_entry, data=user_input)
+            verify_ssl = existing_entry.options.get(
+                CONF_VERIFY_SSL,
+                existing_entry.data.get(CONF_VERIFY_SSL, False),
+            )
+            await self.hass.async_add_executor_job(
+                self._validate_credentials,
+                user_input[CONF_USERNAME],
+                user_input[CONF_PASSWORD],
+                verify_ssl,
+            )
+            new_data = {
+                **existing_entry.data,
+                CONF_USERNAME: user_input[CONF_USERNAME],
+                CONF_PASSWORD: user_input[CONF_PASSWORD],
+            }
+            self.hass.config_entries.async_update_entry(existing_entry, data=new_data)
             return self.async_abort(reason="reauth_successful")
 
-        return self.async_show_form(step_id="reauth", data_schema=DATA_SCHEMA)
+        return self.async_show_form(step_id="reauth", data_schema=REAUTH_SCHEMA)
 
 
 class InvalidCredentials(HomeAssistantError):
@@ -120,20 +152,29 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         """Manage the options."""
         if user_input is not None:
-            # Update the config entry with new data
+            validated = {
+                CONF_INTERVAL: user_input[CONF_INTERVAL],
+                CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
+            }
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
-                data={**self.config_entry.data, **user_input}
+                options={**self.config_entry.options, **validated},
             )
             return self.async_create_entry(title="", data={})
 
         # Get current values
-        current_interval = self.config_entry.data.get(CONF_INTERVAL, 30)
-        current_verify_ssl = self.config_entry.data.get(CONF_VERIFY_SSL, False)
+        current_interval = self.config_entry.options.get(
+            CONF_INTERVAL,
+            self.config_entry.data.get(CONF_INTERVAL, DEFAULT_INTERVAL),
+        )
+        current_verify_ssl = self.config_entry.options.get(
+            CONF_VERIFY_SSL,
+            self.config_entry.data.get(CONF_VERIFY_SSL, False),
+        )
 
         options_schema = vol.Schema({
-            vol.Optional(CONF_INTERVAL, default=current_interval): int,
-            vol.Optional(CONF_VERIFY_SSL, default=current_verify_ssl): bool,
+            vol.Required(CONF_INTERVAL, default=current_interval): vol.All(int, vol.Range(min=10, max=3600)),
+            vol.Required(CONF_VERIFY_SSL, default=current_verify_ssl): bool,
         })
 
         return self.async_show_form(step_id="init", data_schema=options_schema)

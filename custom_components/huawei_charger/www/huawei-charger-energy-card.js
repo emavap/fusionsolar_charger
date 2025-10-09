@@ -82,13 +82,17 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     };
     
     const sessionEnergyEntity = findEntity(['session_energy']) || 
-                               this._hass.states[this.config.session_energy_entity];
+                               this._hass.states?.[this.config.session_energy_entity];
     const sessionDurationEntity = findEntity(['session_duration']) || 
-                                 this._hass.states[this.config.session_duration_entity];
+                                 this._hass.states?.[this.config.session_duration_entity];
     const totalEnergyEntity = findEntity(['total_energy_charged', 'total_energy']) || 
-                             this._hass.states[this.config.total_energy_entity];
+                             this._hass.states?.[this.config.total_energy_entity];
     const currentPowerEntity = findEntity(['current_power', 'power']) || 
-                              this._hass.states[this.config.current_power_entity];
+                              this._hass.states?.[this.config.current_power_entity];
+    const dynamicLimitEntity = findEntity(['dynamic_power_limit']) || 
+                               this._hass.states?.[this.config.dynamic_power_entity];
+    const ratedPowerEntity = findEntity(['rated_power', 'max_power', 'fixed_max_power']) || 
+                             this._hass.states?.[this.config.rated_power_entity];
     
     // If no energy entities found, show helpful message
     if (!sessionEnergyEntity && !totalEnergyEntity && !currentPowerEntity) {
@@ -110,10 +114,21 @@ class HuaweiChargerEnergyCard extends HTMLElement {
       return;
     }
 
-    const sessionEnergy = parseFloat(sessionEnergyEntity.state) || 0;
-    const sessionDuration = parseFloat(sessionDurationEntity?.state) || 0;
-    const totalEnergy = parseFloat(totalEnergyEntity?.state) || 0;
-    const currentPower = parseFloat(currentPowerEntity?.state) || 0;
+    const safeParse = (value, fallback = 0) => {
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const sessionEnergy = safeParse(sessionEnergyEntity?.state, 0);
+    const sessionDuration = safeParse(sessionDurationEntity?.state, 0);
+    const totalEnergy = safeParse(totalEnergyEntity?.state, 0);
+    const currentPower = safeParse(currentPowerEntity?.state, 0);
+
+    const configMax = safeParse(this.config?.max_session_energy, NaN);
+    const dynamicMaxAttr = safeParse(dynamicLimitEntity?.attributes?.max, NaN);
+    const ratedPower = safeParse(ratedPowerEntity?.state, NaN);
+    const capacityCandidates = [configMax, dynamicMaxAttr, ratedPower, 7.4];
+    const sessionCapacity = capacityCandidates.find(value => Number.isFinite(value) && value > 0) || 7.4;
 
     // Calculate session metrics
     const sessionCost = sessionEnergy * this.config.energy_cost;
@@ -121,10 +136,15 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     const sessionHours = Math.floor(sessionDuration / 60);
     const sessionMinutes = Math.floor(sessionDuration % 60);
 
-    // Estimate remaining time if charging
-    const estimatedTimeToFull = currentPower > 0 ? ((7.4 - sessionEnergy) / currentPower) * 60 : 0;
+    const remainingEnergy = Math.max(sessionCapacity - sessionEnergy, 0);
+    const estimatedTimeToFull = currentPower > 0 ? (remainingEnergy / currentPower) * 60 : 0;
     const estHours = Math.floor(estimatedTimeToFull / 60);
     const estMinutes = Math.floor(estimatedTimeToFull % 60);
+
+    const sessionProgress = sessionCapacity > 0 ? (sessionEnergy / sessionCapacity) * 100 : 0;
+    const powerUsagePercent = sessionCapacity > 0 && currentPower > 0
+      ? Math.min(Math.max((currentPower / sessionCapacity) * 100, 0), 999)
+      : 0;
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -179,7 +199,7 @@ class HuaweiChargerEnergyCard extends HTMLElement {
           letter-spacing: 0.5px;
         }
         .session-details {
-          background: linear-gradient(135deg, var(--primary-color)20, var(--secondary-background-color));
+          background: linear-gradient(135deg, var(--primary-color) 20%, var(--secondary-background-color));
           border-radius: 12px;
           padding: 16px;
           margin-bottom: 16px;
@@ -325,16 +345,16 @@ class HuaweiChargerEnergyCard extends HTMLElement {
 
           <div class="power-trend">
             <div class="trend-item">
-              <div class="trend-value">${(sessionEnergy * 100 / 7.4).toFixed(0)}%</div>
+              <div class="trend-value">${sessionProgress.toFixed(0)}%</div>
               <div class="trend-label">Battery Progress</div>
             </div>
             <div class="trend-item">
-              <div class="trend-value">${sessionDuration > 0 ? (sessionEnergy / (sessionDuration / 3600)).toFixed(1) : '0.0'}</div>
-              <div class="trend-label">kW/h Rate</div>
+              <div class="trend-value">${sessionDuration > 0 ? averagePower.toFixed(1) : '0.0'}</div>
+              <div class="trend-label">Average Power (kW)</div>
             </div>
             <div class="trend-item">
-              <div class="trend-value">${currentPower > 0 ? Math.round((currentPower / 7.4) * 100) : 0}%</div>
-              <div class="trend-label">Power Usage</div>
+              <div class="trend-value">${Math.round(powerUsagePercent)}%</div>
+              <div class="trend-label">Limit Usage</div>
             </div>
           </div>
         </div>

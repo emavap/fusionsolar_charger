@@ -126,12 +126,12 @@ class HuaweiChargerControlCard extends HTMLElement {
       return null;
     };
     
-    const dynamicEntity = findEntity(['dynamic_power_limit']) || 
-                         this._hass.states[this.config.dynamic_power_entity];
-    const fixedEntity = findEntity(['fixed_max_charging_power', 'fixed_max_power']) || 
-                       this._hass.states[this.config.fixed_power_entity];
-    const pluggedInEntity = findEntity(['plugged_in']) || 
-                           this._hass.states[this.config.plugged_in_entity];
+    const dynamicEntity = findEntity(['dynamic_power_limit']) ||
+                          this._hass.states?.[this.config.dynamic_power_entity];
+    const fixedEntity = findEntity(['fixed_max_charging_power', 'fixed_max_power']) ||
+                        this._hass.states?.[this.config.fixed_power_entity];
+    const pluggedInEntity = findEntity(['plugged_in']) ||
+                           this._hass.states?.[this.config.plugged_in_entity];
     
     // If no power control entities found, show helpful message
     if (!dynamicEntity) {
@@ -153,9 +153,14 @@ class HuaweiChargerControlCard extends HTMLElement {
       return;
     }
 
+    const toNumber = (value, fallback) => {
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
     // Use pending value if we have one, otherwise use actual entity state
-    const dynamicValue = this._pendingValue !== null ? this._pendingValue : (parseFloat(dynamicEntity.state) || 0);
-    const fixedValue = parseFloat(fixedEntity?.state) || 0;
+    const dynamicValue = this._pendingValue !== null ? this._pendingValue : toNumber(dynamicEntity.state, 0);
+    const fixedValue = toNumber(fixedEntity?.state, 0);
     const pluggedInValue = pluggedInEntity?.state;
     
     // Interpret plugged-in status values
@@ -176,9 +181,9 @@ class HuaweiChargerControlCard extends HTMLElement {
       cableIcon = 'mdi:power-plug';
       cableColor = 'ready';
     }
-    const minValue = dynamicEntity.attributes.min || 1.6;
-    const maxValue = dynamicEntity.attributes.max || 7.4;
-    const step = dynamicEntity.attributes.step || 0.1;
+    const minValue = toNumber(dynamicEntity.attributes.min, 1.6);
+    const maxValue = toNumber(dynamicEntity.attributes.max, 7.4);
+    const step = toNumber(dynamicEntity.attributes.step, 0.1);
 
     // Preset power levels
     const presets = [
@@ -418,14 +423,12 @@ class HuaweiChargerControlCard extends HTMLElement {
 
   setupEventListeners() {
     const slider = this.shadowRoot.getElementById('dynamic-slider');
-    const display = this.shadowRoot.getElementById('dynamic-display');
     const presetButtons = this.shadowRoot.querySelectorAll('.preset-button');
 
     // Slider input event
     slider?.addEventListener('input', (e) => {
       const value = parseFloat(e.target.value);
-      display.textContent = value.toFixed(1);
-      this.updatePresetButtons(value);
+      this._updateDisplay(value);
     });
 
     // Slider change event (when user releases)
@@ -454,15 +457,29 @@ class HuaweiChargerControlCard extends HTMLElement {
   }
 
   _setPowerLimitOptimistic(value) {
-    // Set the pending value and ignore updates for a period
+    if (!Number.isFinite(value)) {
+      return;
+    }
     this._pendingValue = value;
-    this._ignoreUpdatesUntil = Date.now() + 15000; // 15 seconds
-    
-    // Update UI immediately
-    this.render();
-    
-    // Actually set the power limit
+    this._ignoreUpdatesUntil = Date.now() + 15000;
+    this._applyPendingValue(value);
     this.setPowerLimit(value);
+  }
+
+  _applyPendingValue(value) {
+    const slider = this.shadowRoot?.getElementById('dynamic-slider');
+    if (slider && slider.value !== String(value)) {
+      slider.value = value;
+    }
+    this._updateDisplay(value);
+  }
+
+  _updateDisplay(value) {
+    const display = this.shadowRoot?.getElementById('dynamic-display');
+    if (display) {
+      display.textContent = value.toFixed(1);
+    }
+    this.updatePresetButtons(value);
   }
 
   async setPowerLimit(value) {

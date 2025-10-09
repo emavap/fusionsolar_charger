@@ -84,7 +84,9 @@ class HuaweiChargerStatusCard extends HTMLElement {
     const currentPower = findEntity(['current_power', 'power']);
     const sessionEnergy = findEntity(['session_energy']);
     const pluggedIn = findEntity(['plugged_in', 'plugged']);
-    const dynamicPowerLimit = this._hass.states[`number.huawei_charger_dynamic_power_limit`];
+    const dynamicPowerLimit = findEntity(['dynamic_power_limit']) ||
+      findEntity(['fixed_max_charging_power', 'fixed_max_power']) ||
+      this._hass.states?.[this.config.dynamic_power_entity];
     
     // Debug: If no key entities found, show available entities
     if (!chargingStatus && !currentPower && !sessionEnergy) {
@@ -136,7 +138,8 @@ class HuaweiChargerStatusCard extends HTMLElement {
     const isCharging = chargingStatus?.state === '1' || chargingStatus?.state === 'Charging';
     const isPlugged = pluggedIn?.state === '1' || pluggedIn?.state === 'Connected';
     const power = parseFloat(currentPower?.state) || 0;
-    const powerLimit = parseFloat(dynamicPowerLimit?.state) || 7.4;
+    const rawPowerLimit = parseFloat(dynamicPowerLimit?.state);
+    const powerLimit = Number.isFinite(rawPowerLimit) && rawPowerLimit > 0 ? rawPowerLimit : 7.4;
     
     let statusText = 'Unknown';
     let statusColor = '#666';
@@ -156,7 +159,8 @@ class HuaweiChargerStatusCard extends HTMLElement {
       statusIcon = 'mdi:ev-station';
     }
 
-    const powerPercent = Math.min((power / powerLimit) * 100, 100);
+    const safeLimit = powerLimit > 0 ? powerLimit : 1;
+    const powerPercent = Math.min(Math.max((power / safeLimit) * 100, 0), 100);
 
     this.shadowRoot.innerHTML = `
       <style>

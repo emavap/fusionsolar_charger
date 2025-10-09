@@ -349,7 +349,7 @@ class HuaweiChargerInfoCard extends HTMLElement {
           ${this.config.show_diagnostic ? `
             <div class="diagnostic-section">
               <div class="info-section">
-                <div class="section-title expandable" onclick="this.nextElementSibling.classList.toggle('collapsed')">
+                <div class="section-title expandable">
                   <ha-icon icon="mdi:chart-line-variant"></ha-icon>
                   Diagnostic Information
                   <ha-icon icon="mdi:chevron-down" style="margin-left: auto;"></ha-icon>
@@ -396,6 +396,20 @@ class HuaweiChargerInfoCard extends HTMLElement {
         </div>
       </ha-card>
     `;
+
+    this._bindExpandableSections();
+  }
+
+  _bindExpandableSections() {
+    const toggles = this.shadowRoot?.querySelectorAll('.section-title.expandable');
+    toggles?.forEach((toggle) => {
+      toggle.addEventListener('click', () => {
+        const content = toggle.nextElementSibling;
+        if (content) {
+          content.classList.toggle('collapsed');
+        }
+      });
+    });
   }
 }
 

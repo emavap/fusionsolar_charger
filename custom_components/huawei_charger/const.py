@@ -4,7 +4,7 @@ CONF_VERIFY_SSL = "verify_ssl"
 
 DEFAULT_REQUEST_TIMEOUT = 15
 DEFAULT_LOCALE = "de_DE"
-DEFAULT_TIMEZONE_OFFSET = 120  # +2:00 (Central European Summer Time)
+DEFAULT_TIMEZONE_OFFSET = 120  # +2:00 fallback
 
 # Writable registers
 REG_FIXED_MAX_POWER = "538976598"

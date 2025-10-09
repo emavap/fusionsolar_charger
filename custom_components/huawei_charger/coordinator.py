@@ -22,19 +22,24 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+class AuthenticationFailed(UpdateFailed):
+    """Raised when FusionSolar signals an authentication failure."""
+
+
 class HuaweiChargerCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
+        update_seconds = entry.options.get(CONF_INTERVAL, entry.data.get(CONF_INTERVAL, 30))
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=entry.data.get(CONF_INTERVAL, 30)),
+            update_interval=timedelta(seconds=update_seconds),
         )
         self.hass = hass
         self.entry = entry
         self.username = entry.data["username"]
         self.password = entry.data["password"]
-        self.verify_ssl = entry.data.get(CONF_VERIFY_SSL, False)
+        self.verify_ssl = entry.options.get(CONF_VERIFY_SSL, entry.data.get(CONF_VERIFY_SSL, False))
         self.request_timeout = DEFAULT_REQUEST_TIMEOUT
 
         self.token = None
@@ -55,14 +60,15 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                 await self.hass.async_add_executor_job(self.fetch_wallbox_info)
                 return self.param_values
 
+            except AuthenticationFailed as err:
+                _LOGGER.warning("Authentication failure on update attempt %s: %s", attempt + 1, err)
+                self._reset_auth_state()
+                if attempt == 2:
+                    raise UpdateFailed("Authentication failed after retries") from err
+                await asyncio.sleep(2 ** attempt)
             except Exception as err:
-                _LOGGER.warning(f"Update attempt {attempt + 1}/3 failed: {err}")
-                self.token = None
-                self.headers = {}
-                self.region_ip = None
-                self.dn_id = None
-                self.wallbox_dn_id = None
-
+                _LOGGER.warning("Update attempt %s/3 failed: %s", attempt + 1, err)
+                self._reset_auth_state()
                 if attempt < 2:
                     await asyncio.sleep(2 ** attempt)
                 else:
@@ -174,6 +180,10 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                 if response.status_code == 200:
                     _LOGGER.info("Successfully set config %s to %s", param_id, value)
                     return True
+            except AuthenticationFailed:
+                _LOGGER.info("Authentication expired while writing %s; refreshing token", param_id)
+                self._reset_auth_state()
+                self.authenticate()
             except UpdateFailed as err:
                 _LOGGER.warning("Set config attempt %s/%s failed: %s", attempt + 1, retries, err)
             except requests.RequestException as err:
@@ -208,6 +218,8 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             raise UpdateFailed("Connection error to FusionSolar API") from err
         except requests.exceptions.HTTPError as err:
             status = err.response.status_code if err.response is not None else "unknown"
+            if status in (401, 403):
+                raise AuthenticationFailed(f"HTTP {status} authentication error from FusionSolar") from err
             raise UpdateFailed(f"HTTP {status} error while contacting FusionSolar API") from err
 
     def _json_or_error(self, response, context, default=None):
@@ -221,9 +233,35 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Invalid JSON response during {context}") from err
 
     def _derive_locale(self):
-        """Derive locale string for API payloads. Defaults to German for compatibility."""
+        """Derive locale string for API payloads."""
+        language = (self.hass.config.language or DEFAULT_LOCALE).replace("-", "_")
+        if "_" in language:
+            lang, _, region = language.partition("_")
+            lang = lang or DEFAULT_LOCALE.split("_")[0]
+            region = region or lang.upper()
+            return f"{lang.lower()}_{region.upper()}"
+        if len(language) == 2:
+            return DEFAULT_LOCALE
         return DEFAULT_LOCALE
 
     def _derive_timezone_offset(self):
-        """Return timezone offset in minutes. Defaults to +2:00 (CEST) for compatibility."""
-        return DEFAULT_TIMEZONE_OFFSET
+        """Return timezone offset in minutes."""
+        timezone_name = self.hass.config.time_zone
+        try:
+            tzinfo = ZoneInfo(timezone_name) if timezone_name else None
+        except Exception:
+            tzinfo = None
+
+        now = datetime.now(tzinfo) if tzinfo else datetime.now()
+        offset = now.utcoffset()
+        if offset is None:
+            return DEFAULT_TIMEZONE_OFFSET
+        return int(offset.total_seconds() / 60)
+
+    def _reset_auth_state(self):
+        """Clear auth-related state so the next request authenticates again."""
+        self.token = None
+        self.headers = {}
+        self.region_ip = None
+        self.dn_id = None
+        self.wallbox_dn_id = None

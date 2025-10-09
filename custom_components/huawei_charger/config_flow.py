@@ -1,20 +1,19 @@
 from homeassistant import config_entries
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_VERIFY_SSL
 from homeassistant.exceptions import HomeAssistantError
 import voluptuous as vol
 import logging
 import requests
-import urllib3
 
-from .const import DOMAIN, CONF_INTERVAL
+from .const import DOMAIN, CONF_INTERVAL, DEFAULT_REQUEST_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 DATA_SCHEMA = vol.Schema({
     vol.Required(CONF_USERNAME): str,
     vol.Required(CONF_PASSWORD): str,
     vol.Optional(CONF_INTERVAL, default=30): int,
+    vol.Optional(CONF_VERIFY_SSL, default=False): bool,
 })
 
 class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -26,9 +25,10 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 # Validate credentials
                 await self.hass.async_add_executor_job(
-                    self._validate_credentials, 
-                    user_input[CONF_USERNAME], 
-                    user_input[CONF_PASSWORD]
+                    self._validate_credentials,
+                    user_input[CONF_USERNAME],
+                    user_input[CONF_PASSWORD],
+                    user_input[CONF_VERIFY_SSL],
                 )
                 # Create entry if validation succeeds
                 return self.async_create_entry(title=user_input[CONF_USERNAME], data=user_input)
@@ -42,7 +42,7 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 
         return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
     
-    def _validate_credentials(self, username: str, password: str):
+    def _validate_credentials(self, username: str, password: str, verify_ssl: bool):
         """Validate credentials by attempting authentication."""
         url = "https://intl.fusionsolar.huawei.com:32800/rest/neteco/appauthen/v1/smapp/app/token"
         payload = {
@@ -54,25 +54,36 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         
         try:
-            response = requests.post(url, json=payload, verify=False, 
-                                   headers={"Content-Type": "application/json"}, timeout=10)
+            response = requests.post(
+                url,
+                json=payload,
+                verify=verify_ssl,
+                headers={"Content-Type": "application/json"},
+                timeout=DEFAULT_REQUEST_TIMEOUT,
+            )
             response.raise_for_status()
             data = response.json()
-            
+
             if "data" not in data or "accessToken" not in data["data"]:
                 raise InvalidCredentials("Invalid authentication response")
-                
-        except requests.exceptions.Timeout:
-            raise CannotConnect("Connection timeout")
-        except requests.exceptions.ConnectionError:
-            raise CannotConnect("Connection failed")
+
+        except requests.exceptions.Timeout as err:
+            raise CannotConnect("Connection timeout") from err
+        except requests.exceptions.ConnectionError as err:
+            raise CannotConnect("Connection failed") from err
         except requests.exceptions.HTTPError as err:
-            if err.response.status_code in [401, 403]:
-                raise InvalidCredentials("Invalid username or password")
-            raise CannotConnect(f"HTTP error: {err.response.status_code}")
+            if err.response is not None and err.response.status_code in [401, 403]:
+                raise InvalidCredentials("Invalid username or password") from err
+            raise CannotConnect(f"HTTP error: {err.response.status_code if err.response else 'unknown'}") from err
+        except requests.exceptions.SSLError as err:
+            if verify_ssl:
+                raise CannotConnect("SSL validation failed") from err
+            raise CannotConnect("SSL handshake failed") from err
+        except ValueError as err:
+            raise CannotConnect("Invalid response payload") from err
         except Exception as err:
             _LOGGER.error("Validation error: %s", err)
-            raise CannotConnect("Unknown connection error")
+            raise CannotConnect("Unknown connection error") from err
 
     async def async_step_reauth(self, user_input=None):
         if user_input is not None:

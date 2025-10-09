@@ -10,5 +10,17 @@
       "update_interval": "Update interval (seconds)",
       "verify_ssl": "Verify SSL certificates"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Huawei Charger Options",
+        "description": "Configure integration settings",
+        "data": {
+          "update_interval": "Update interval (seconds)",
+          "verify_ssl": "Verify SSL certificates"
+        }
+      }
+    }
   }
 }

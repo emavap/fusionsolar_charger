@@ -224,26 +224,35 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
                 if isinstance(raw_value, str):
                     # Extract key information from the device info
                     lines = raw_value.split('\n')
-                    key_info = []
+                    extracted = {}
                     for line in lines:
-                        if 'BoardType=' in line:
-                            key_info.append(line.split('=')[1])
-                        elif 'Model=' in line:
-                            key_info.append(line.split('=')[1])
-                        elif 'VendorName=' in line:
-                            key_info.append(line.split('=')[1])
-                    if key_info:
-                        return ' - '.join(key_info)
+                        line = line.strip()
+                        if not line or '=' not in line:
+                            continue
+                        key, _, value = line.partition('=')
+                        key = key.strip()
+                        value = value.strip()
+                        if key in ("BoardType", "Model", "VendorName") and value:
+                            extracted[key] = value
+
+                    if extracted:
+                        ordered_keys = ["BoardType", "Model", "VendorName"]
+                        key_info = [extracted[key] for key in ordered_keys if key in extracted]
+                        if key_info:
+                            return ' - '.join(key_info)
                     # Fallback: just return first meaningful line
                     for line in lines:
-                        if line.strip() and not line.startswith('/$') and '=' in line:
-                            return line.strip()[:200]  # Limit to 200 chars
+                        stripped_line = line.strip()
+                        if stripped_line and not stripped_line.startswith('/$') and '=' in stripped_line:
+                            return stripped_line[:200]  # Limit to 200 chars
                     return "Device Info Available"
                 return str(raw_value)[:200]  # Fallback truncation
                     
-            # Default: return string values as-is, numeric as float
-            if isinstance(raw_value, (int, float)):
-                return float(raw_value)
+            # Default: pass through native numeric values
+            if isinstance(raw_value, (int, float)) and not isinstance(raw_value, bool):
+                return raw_value
+            if isinstance(raw_value, bool):
+                return raw_value
             
             # Ensure string values don't exceed 255 characters
             str_value = str(raw_value)

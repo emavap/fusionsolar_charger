@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import timedelta, datetime
 from zoneinfo import ZoneInfo
 import requests
@@ -20,6 +21,8 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_NUMERIC_PATTERN = re.compile(r"^-?\d+(?:\.\d+)?$")
 
 
 class AuthenticationFailed(UpdateFailed):
@@ -149,7 +152,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             
         wallbox = data["data"][0]
         self.wallbox_dn_id = wallbox["dnId"]
-        self.param_values = wallbox.get("paramValues", {})
+        self.param_values = self._normalize_param_values(wallbox.get("paramValues", {}))
         
         # Log available register IDs for debugging
         if self.param_values:
@@ -231,6 +234,40 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                 _LOGGER.warning("Response for %s was not JSON: %s", context, err)
                 return default
             raise UpdateFailed(f"Invalid JSON response during {context}") from err
+
+    def _normalize_param_values(self, param_values):
+        """Convert FusionSolar param values into native Python types."""
+        if not isinstance(param_values, dict):
+            return {}
+
+        normalized = {}
+        for reg_id, value in param_values.items():
+            normalized[reg_id] = self._convert_register_value(value)
+        return normalized
+
+    def _convert_register_value(self, value):
+        """Best-effort conversion for register payloads returned as strings."""
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "":
+                return ""
+
+            lowered = stripped.lower()
+            if lowered in ("true", "false"):
+                return lowered == "true"
+
+            if _NUMERIC_PATTERN.match(stripped):
+                if "." in stripped:
+                    number = float(stripped)
+                    return int(number) if number.is_integer() else number
+                try:
+                    return int(stripped)
+                except ValueError:
+                    return stripped
+
+            return stripped
+
+        return value
 
     def _derive_locale(self):
         """Derive locale string for API payloads."""

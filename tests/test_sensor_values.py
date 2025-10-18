@@ -73,4 +73,3 @@ def test_sensor_extra_state_attributes():
     attrs = sensor.extra_state_attributes
     assert attrs["register_id"] == "538976598"
     assert attrs["raw_value"] == 7.4
-

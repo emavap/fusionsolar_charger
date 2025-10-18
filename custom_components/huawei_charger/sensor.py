@@ -196,7 +196,7 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
                         if offset_value is not None:
                             try:
                                 offset = float(offset_value)
-                                temp_value = temp_value - offset  # Apply offset correction
+                                temp_value = temp_value - offset  # Apply temperature offset correction
                                 _LOGGER.debug("Temperature %s: raw=%s, offset=%s, corrected=%s", 
                                             self._reg_id, raw_value, offset, temp_value)
                             except (ValueError, TypeError):

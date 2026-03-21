@@ -30,16 +30,79 @@ class HuaweiChargerStatusCard extends HTMLElement {
     return 3;
   }
 
+  _normalizeStateValue(value) {
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  _isEntityAvailable(entity) {
+    if (!entity) return false;
+    const state = this._normalizeStateValue(entity.state);
+    return state !== '' && state !== 'unknown' && state !== 'unavailable' && state !== 'none';
+  }
+
+  _findEntityBySuffixes(huaweiEntities, suffixes, configuredEntityId = null) {
+    if (configuredEntityId && this._hass.states?.[configuredEntityId]) {
+      return this._hass.states[configuredEntityId];
+    }
+
+    for (const suffix of suffixes) {
+      const found = huaweiEntities.find(
+        (id) => id.endsWith(`_${suffix}`) || id.endsWith(`.${suffix}`)
+      );
+      if (found) {
+        return this._hass.states[found];
+      }
+    }
+
+    return null;
+  }
+
+  _deriveConnectionState(pluggedIn, power) {
+    const pluggedState = this._normalizeStateValue(pluggedIn?.state);
+
+    if (
+      ['3', 'charging'].includes(pluggedState) ||
+      power > 0.1
+    ) {
+      return {
+        isCharging: true,
+        statusText: 'Charging',
+        connectionText: 'Connected',
+        statusColor: '#4CAF50',
+        statusIcon: 'mdi:battery-charging'
+      };
+    }
+
+    if (['1', '2', 'connected', 'ready'].includes(pluggedState)) {
+      return {
+        isCharging: false,
+        statusText: pluggedState === '2' || pluggedState === 'ready' ? 'Ready' : 'Idle',
+        connectionText: 'Idle',
+        statusColor: pluggedState === '2' || pluggedState === 'ready' ? '#FF9800' : '#2196F3',
+        statusIcon: 'mdi:power-plug'
+      };
+    }
+
+    return {
+      isCharging: false,
+      statusText: 'Idle',
+      connectionText: 'Idle',
+      statusColor: '#9E9E9E',
+      statusIcon: 'mdi:ev-station'
+    };
+  }
+
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
     
     // Get current status monitoring entities
     const huaweiEntities = Object.keys(hass.states).filter(id => 
       id.includes('huawei_charger') && (
-        id.includes('charging_status') ||
         id.includes('current_power') ||
-        id.includes('power') ||
+        id.includes('charging_power') ||
         id.includes('session_energy') ||
+        id.includes('total_energy_charged') ||
+        id.includes('total_energy') ||
         id.includes('plugged_in') ||
         id.includes('plugged') ||
         id.includes('dynamic_power_limit')
@@ -71,41 +134,26 @@ class HuaweiChargerStatusCard extends HTMLElement {
       id.includes('huawei_charger')
     );
     
-    // Try to find the best entities to use
-    const findEntity = (patterns) => {
-      for (const pattern of patterns) {
-        const found = huaweiEntities.find(id => id.includes(pattern));
-        if (found) return this._hass.states[found];
-      }
-      return null;
-    };
-    
-    const chargingStatus = findEntity(['charging_status']);
-    const currentPower = findEntity(['current_power', 'power']);
-    const sessionEnergy = findEntity(['session_energy']);
-    const pluggedIn = findEntity(['plugged_in', 'plugged']);
-    const dynamicPowerLimit = findEntity(['dynamic_power_limit']) ||
-      findEntity(['fixed_max_charging_power', 'fixed_max_power']) ||
-      this._hass.states?.[this.config.dynamic_power_entity];
-    
-    // Debug: If no key entities found, show available entities
-    if (!chargingStatus && !currentPower && !sessionEnergy) {
-      this.shadowRoot.innerHTML = `
-        <ha-card>
-          <div class="card-content">
-            <div class="error">
-              <h3>Status Card: Key entities not found</h3>
-              <p><strong>Looking for:</strong> charging_status, current_power, session_energy</p>
-              <p><strong>Available Huawei entities (${huaweiEntities.length}):</strong></p>
-              <ul style="text-align: left; margin: 8px 0; max-height: 200px; overflow-y: auto;">
-                ${huaweiEntities.map(id => `<li><code>${id}</code> = ${this._hass.states[id].state}</li>`).join('')}
-              </ul>
-            </div>
-          </div>
-        </ha-card>
-      `;
-      return;
-    }
+    const currentPower = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['current_power', 'charging_power'],
+      this.config.current_power_entity
+    );
+    const sessionEnergy = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['session_energy', 'total_energy_charged', 'total_energy'],
+      this.config.session_energy_entity
+    );
+    const pluggedIn = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['plugged_in', 'plugged'],
+      this.config.plugged_in_entity
+    );
+    const dynamicPowerLimit = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['dynamic_power_limit', 'fixed_max_charging_power', 'fixed_max_power'],
+      this.config.dynamic_power_entity
+    );
     
     // If no Huawei entities found, show helpful message with debugging info
     if (huaweiEntities.length === 0) {
@@ -134,33 +182,67 @@ class HuaweiChargerStatusCard extends HTMLElement {
       return;
     }
 
-    // Determine charging state and color
-    const isCharging = chargingStatus?.state === '1' || chargingStatus?.state === 'Charging';
-    const isPlugged = pluggedIn?.state === '1' || pluggedIn?.state === 'Connected';
-    const power = parseFloat(currentPower?.state) || 0;
-    const rawPowerLimit = parseFloat(dynamicPowerLimit?.state);
-    const powerLimit = Number.isFinite(rawPowerLimit) && rawPowerLimit > 0 ? rawPowerLimit : 7.4;
-    
-    let statusText = 'Unknown';
-    let statusColor = '#666';
-    let statusIcon = 'mdi:help-circle';
-    
-    if (isCharging) {
-      statusText = 'Charging';
-      statusColor = '#4CAF50';
-      statusIcon = 'mdi:battery-charging';
-    } else if (isPlugged) {
-      statusText = 'Connected';
-      statusColor = '#2196F3';
-      statusIcon = 'mdi:power-plug';
-    } else {
-      statusText = 'Idle';
-      statusColor = '#9E9E9E';
-      statusIcon = 'mdi:ev-station';
+    const hasCurrentPower = this._isEntityAvailable(currentPower);
+    const hasSessionEnergy = this._isEntityAvailable(sessionEnergy);
+    const hasPowerLimit = this._isEntityAvailable(dynamicPowerLimit);
+    const hasPluggedState = this._isEntityAvailable(pluggedIn);
+
+    if (!hasCurrentPower && !hasSessionEnergy && !hasPowerLimit && !hasPluggedState) {
+      this.shadowRoot.innerHTML = `
+        <ha-card>
+          <div class="card-content">
+            <div class="error">
+              <h3>No compatible charger status entities available</h3>
+              <p>The card will render automatically when Huawei exposes current power, total energy, or limit data.</p>
+            </div>
+          </div>
+        </ha-card>
+      `;
+      return;
     }
 
-    const safeLimit = powerLimit > 0 ? powerLimit : 1;
-    const powerPercent = Math.min(Math.max((power / safeLimit) * 100, 0), 100);
+    const power = hasCurrentPower ? (parseFloat(currentPower.state) || 0) : null;
+    const rawPowerLimit = hasPowerLimit ? parseFloat(dynamicPowerLimit.state) : NaN;
+    const powerLimit = Number.isFinite(rawPowerLimit) && rawPowerLimit > 0 ? rawPowerLimit : null;
+    const connection = this._deriveConnectionState(pluggedIn, power ?? 0);
+    const isCharging = connection.isCharging;
+    const statusText = connection.statusText;
+    const statusColor = connection.statusColor;
+    const statusIcon = connection.statusIcon;
+
+    const safeLimit = powerLimit && powerLimit > 0 ? powerLimit : null;
+    const powerPercent = safeLimit && power !== null
+      ? Math.min(Math.max((power / safeLimit) * 100, 0), 100)
+      : 0;
+    const energyLabel = sessionEnergy?.entity_id?.includes('total_energy') ? 'Total Energy' : 'Energy';
+    const infoItems = [];
+
+    if (hasSessionEnergy) {
+      infoItems.push(`
+        <div class="info-item">
+          <div class="info-label">${energyLabel}</div>
+          <div class="info-value">${sessionEnergy.state} kWh</div>
+        </div>
+      `);
+    }
+
+    if (hasPowerLimit) {
+      infoItems.push(`
+        <div class="info-item">
+          <div class="info-label">Limit</div>
+          <div class="info-value">${powerLimit.toFixed(1)} kW</div>
+        </div>
+      `);
+    }
+
+    if (hasCurrentPower || hasPluggedState) {
+      infoItems.push(`
+        <div class="info-item">
+          <div class="info-label">Status</div>
+          <div class="info-value">${statusText}</div>
+        </div>
+      `);
+    }
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -278,30 +360,33 @@ class HuaweiChargerStatusCard extends HTMLElement {
             </div>
           </div>
           
-          <div class="power-display">
-            <div>
-              <span class="power-current">${power.toFixed(1)}</span>
-              <span class="power-unit">kW</span>
+          ${(hasCurrentPower || hasPowerLimit) ? `
+            <div class="power-display">
+              ${hasCurrentPower ? `
+                <div>
+                  <span class="power-current">${power.toFixed(1)}</span>
+                  <span class="power-unit">kW</span>
+                </div>
+              ` : '<div><span class="power-current">-</span><span class="power-unit">kW</span></div>'}
+              ${hasPowerLimit ? `
+                <div class="power-limit">
+                  Limit: ${powerLimit.toFixed(1)}kW
+                </div>
+              ` : ''}
             </div>
-            <div class="power-limit">
-              Limit: ${powerLimit}kW
-            </div>
-          </div>
+          ` : ''}
           
-          <div class="power-bar">
-            <div class="power-fill"></div>
-          </div>
+          ${safeLimit && power !== null ? `
+            <div class="power-bar">
+              <div class="power-fill"></div>
+            </div>
+          ` : ''}
           
-          <div class="session-info">
-            <div class="info-item">
-              <div class="info-label">Session Energy</div>
-              <div class="info-value">${sessionEnergy?.state || 0} kWh</div>
+          ${infoItems.length > 0 ? `
+            <div class="session-info">
+              ${infoItems.join('')}
             </div>
-            <div class="info-item">
-              <div class="info-label">Connection</div>
-              <div class="info-value">${isPlugged ? 'Connected' : 'Disconnected'}</div>
-            </div>
-          </div>
+          ` : ''}
         </div>
       </ha-card>
     `;

@@ -338,22 +338,9 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_INTERVAL,
                         entry.options.get(CONF_INTERVAL, DEFAULT_INTERVAL),
                     ),
-                    CONF_VERIFY_SSL: user_input.get(
-                        CONF_VERIFY_SSL,
-                        entry.options.get(
-                            CONF_VERIFY_SSL,
-                            entry.data.get(CONF_VERIFY_SSL, False),
-                        ),
-                    ),
-                    CONF_ENABLE_LOGGING: user_input.get(
-                        CONF_ENABLE_LOGGING,
-                        entry.options.get(
-                            CONF_ENABLE_LOGGING,
-                            entry.data.get(
-                                CONF_ENABLE_LOGGING,
-                                DEFAULT_ENABLE_LOGGING,
-                            ),
-                        ),
+                    CONF_VERIFY_SSL: bool(user_input.get(CONF_VERIFY_SSL, False)),
+                    CONF_ENABLE_LOGGING: bool(
+                        user_input.get(CONF_ENABLE_LOGGING, False)
                     ),
                 }
                 self.hass.config_entries.async_update_entry(
@@ -404,7 +391,19 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
         )
 
     def _get_config_entry(self):
-        return self.hass.config_entries.async_get_entry(self.handler)
+        config_entry = getattr(self, "config_entry", None)
+        if config_entry is not None:
+            return config_entry
+
+        entry_id = self.context.get("entry_id") if hasattr(self, "context") else None
+        if entry_id:
+            return self.hass.config_entries.async_get_entry(entry_id)
+
+        handler = getattr(self, "handler", None)
+        if handler:
+            return self.hass.config_entries.async_get_entry(handler)
+
+        return None
 
     def _has_conflicting_entry(self, unique_id: str, current_entry_id: str) -> bool:
         for config_entry in self.hass.config_entries.async_entries(DOMAIN):

@@ -38,6 +38,7 @@ def build_coordinator(language="en-US", time_zone="UTC"):
     coordinator.dn_id = "station"
     coordinator.wallbox_dn = "NE=168363665"
     coordinator.wallbox_dn_id = "wallbox"
+    coordinator.station_values = {}
     coordinator.param_values = {}
     coordinator.config_signal_details = {}
     coordinator.config_signal_values = {}
@@ -270,6 +271,27 @@ def test_authenticate_retries_default_host_when_tenant_host_has_no_token(monkeyp
     assert station_calls == [True]
 
 
+def test_fetch_station_dn_stores_current_power():
+    coordinator = build_coordinator()
+    coordinator._request_post = lambda *args, **kwargs: DummyResponse(
+        {
+            "data": {
+                "list": [
+                    {
+                        "dn": "NE=149170766",
+                        "currentPower": "3.7",
+                    }
+                ]
+            }
+        }
+    )
+
+    coordinator.fetch_station_dn()
+
+    assert coordinator.dn_id == "NE=149170766"
+    assert coordinator.station_values == {"current_power": 3.7}
+
+
 def test_fetch_wallbox_info_falls_back_to_realtime_data():
     coordinator = build_coordinator()
     coordinator.dn_id = "NE=149170766"
@@ -293,7 +315,7 @@ def test_fetch_wallbox_info_falls_back_to_realtime_data():
     coordinator._request_get = lambda *args, **kwargs: DummyResponse(
         {
             "data": [
-                {"id": "20012", "value": "Charging"},
+                {"id": "20012", "value": "40"},
                 {"signalId": "20017", "signalValue": "true"},
                 {"id": "538976598", "value": "7.4"},
             ]
@@ -304,7 +326,7 @@ def test_fetch_wallbox_info_falls_back_to_realtime_data():
 
     assert coordinator.wallbox_dn == "NE=168363665"
     assert coordinator.wallbox_dn_id == 118509961
-    assert result["20012"] == "Charging"
+    assert result["20012"] == 40
     assert result["20017"] is True
     assert coordinator.config_signal_values["538976598"] == 7.4
 
@@ -436,7 +458,7 @@ def test_extract_signal_values_collects_common_signal_shapes():
     payload = {
         "data": {
             "signals": [
-                {"id": "20012", "value": "Charging"},
+                {"id": "20012", "value": "40"},
                 {"signalId": "20017", "signalValue": "true"},
                 {"signalID": "10008", "realValue": "12.34"},
                 {"signal_id": "10010", "currentValue": "5"},
@@ -448,7 +470,7 @@ def test_extract_signal_values_collects_common_signal_shapes():
     result = coordinator._extract_signal_values(payload)
 
     assert result == {
-        "20012": "Charging",
+        "20012": "40",
         "20017": "true",
         "10008": "12.34",
         "10010": "5",
@@ -494,7 +516,7 @@ def test_history_probe_signal_ids_prefers_known_and_realtime_registers():
 
     result = coordinator._history_probe_signal_ids(["10008", "10012", "20012"])
 
-    assert result[:5] == ["10008", "10009", "10010", "20012", "20017"]
+    assert result[:5] == ["10008", "10009", "10010", "20017", "538976598"]
     assert "10012" in result
 
 

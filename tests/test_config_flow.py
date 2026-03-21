@@ -137,7 +137,7 @@ def test_options_flow_updates_host_from_active_integration():
             async_update_entry=async_update_entry,
         )
     )
-    flow.handler = entry.entry_id
+    flow.config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(
@@ -178,14 +178,14 @@ def test_options_schema_includes_logging_toggle():
     flow.hass = SimpleNamespace(
         config_entries=SimpleNamespace(async_get_entry=lambda entry_id: entry)
     )
-    flow.handler = entry.entry_id
+    flow.config_entry = entry
 
     schema = flow._options_schema(entry)
 
     assert CONF_ENABLE_LOGGING in schema.schema
 
 
-def test_options_flow_missing_logging_value_uses_existing_default():
+def test_options_flow_missing_logging_value_turns_logging_off():
     flow = HuaweiChargerOptionsFlow()
     entry = SimpleNamespace(
         entry_id="entry-1",
@@ -195,7 +195,7 @@ def test_options_flow_missing_logging_value_uses_existing_default():
         },
         options={
             CONF_INTERVAL: 30,
-            CONF_VERIFY_SSL: False,
+            CONF_VERIFY_SSL: True,
             CONF_ENABLE_LOGGING: True,
         },
         title="user@example.com @ intl.fusionsolar.huawei.com",
@@ -209,7 +209,7 @@ def test_options_flow_missing_logging_value_uses_existing_default():
             async_update_entry=async_update_entry,
         )
     )
-    flow.handler = entry.entry_id
+    flow.config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(
@@ -231,7 +231,7 @@ def test_options_flow_missing_logging_value_uses_existing_default():
         options={
             CONF_INTERVAL: 60,
             CONF_VERIFY_SSL: True,
-            CONF_ENABLE_LOGGING: True,
+            CONF_ENABLE_LOGGING: False,
         },
         title="user@example.com @ uni005eu5.fusionsolar.huawei.com",
         unique_id="user@example.com@uni005eu5.fusionsolar.huawei.com",

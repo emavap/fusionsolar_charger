@@ -1,4 +1,5 @@
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -7,7 +8,20 @@ from .const import DOMAIN
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([HuaweiChargerCredentialsRejectedBinarySensor(coordinator)])
+    entities = [HuaweiChargerCredentialsRejectedBinarySensor(coordinator)]
+
+    registry = er.async_get(hass)
+    active_unique_ids = {entity.unique_id for entity in entities}
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            registry_entry.domain == "binary_sensor"
+            and registry_entry.unique_id
+            and registry_entry.unique_id.startswith(f"{entry.entry_id}_")
+            and registry_entry.unique_id not in active_unique_ids
+        ):
+            registry.async_remove(registry_entry.entity_id)
+
+    async_add_entities(entities)
 
 
 class HuaweiChargerCredentialsRejectedBinarySensor(CoordinatorEntity, BinarySensorEntity):

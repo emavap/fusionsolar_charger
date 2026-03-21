@@ -34,6 +34,33 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     return 4;
   }
 
+  _normalizeStateValue(value) {
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  _isEntityAvailable(entity) {
+    if (!entity) return false;
+    const state = this._normalizeStateValue(entity.state);
+    return state !== '' && state !== 'unknown' && state !== 'unavailable' && state !== 'none';
+  }
+
+  _findEntityBySuffixes(huaweiEntities, suffixes, configuredEntityId = null) {
+    if (configuredEntityId && this._hass.states?.[configuredEntityId]) {
+      return this._hass.states[configuredEntityId];
+    }
+
+    for (const suffix of suffixes) {
+      const found = huaweiEntities.find(
+        (id) => id.endsWith(`_${suffix}`) || id.endsWith(`.${suffix}`)
+      );
+      if (found) {
+        return this._hass.states[found];
+      }
+    }
+
+    return null;
+  }
+
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
     
@@ -44,7 +71,7 @@ class HuaweiChargerEnergyCard extends HTMLElement {
         id.includes('session_duration') ||
         id.includes('total_energy') ||
         id.includes('current_power') ||
-        id.includes('power')
+        id.includes('charging_power')
       )
     );
     
@@ -73,40 +100,44 @@ class HuaweiChargerEnergyCard extends HTMLElement {
       id.includes('huawei_charger')
     );
     
-    const findEntity = (patterns) => {
-      for (const pattern of patterns) {
-        const found = huaweiEntities.find(id => id.includes(pattern));
-        if (found) return this._hass.states[found];
-      }
-      return null;
-    };
+    const sessionEnergyEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['session_energy'],
+      this.config.session_energy_entity
+    );
+    const sessionDurationEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['session_duration'],
+      this.config.session_duration_entity
+    );
+    const totalEnergyEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['total_energy_charged', 'total_energy'],
+      this.config.total_energy_entity
+    );
+    const currentPowerEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['current_power', 'charging_power'],
+      this.config.current_power_entity
+    );
+    const dynamicLimitEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['dynamic_power_limit'],
+      this.config.dynamic_power_entity
+    );
+    const ratedPowerEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['rated_charging_power', 'rated_power', 'max_power', 'fixed_max_power'],
+      this.config.rated_power_entity
+    );
     
-    const sessionEnergyEntity = findEntity(['session_energy']) || 
-                               this._hass.states?.[this.config.session_energy_entity];
-    const sessionDurationEntity = findEntity(['session_duration']) || 
-                                 this._hass.states?.[this.config.session_duration_entity];
-    const totalEnergyEntity = findEntity(['total_energy_charged', 'total_energy']) || 
-                             this._hass.states?.[this.config.total_energy_entity];
-    const currentPowerEntity = findEntity(['current_power', 'power']) || 
-                              this._hass.states?.[this.config.current_power_entity];
-    const dynamicLimitEntity = findEntity(['dynamic_power_limit']) || 
-                               this._hass.states?.[this.config.dynamic_power_entity];
-    const ratedPowerEntity = findEntity(['rated_power', 'max_power', 'fixed_max_power']) || 
-                             this._hass.states?.[this.config.rated_power_entity];
-    
-    // If no energy entities found, show helpful message
-    if (!sessionEnergyEntity && !totalEnergyEntity && !currentPowerEntity) {
+    if (huaweiEntities.length === 0) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
             <div class="error">
-              <h3>No energy monitoring entities found</h3>
-              <p>Available Huawei Charger entities:</p>
-              <ul style="text-align: left; margin: 8px 0;">
-                ${huaweiEntities.slice(0, 10).map(id => `<li><code>${id}</code></li>`).join('')}
-                ${huaweiEntities.length > 10 ? `<li>... and ${huaweiEntities.length - 10} more</li>` : ''}
-              </ul>
-              <p>Make sure the integration includes energy-related sensor entities.</p>
+              <h3>No Huawei Charger entities found</h3>
+              <p>Make sure the Huawei Charger integration is installed and configured.</p>
             </div>
           </div>
         </ha-card>
@@ -119,10 +150,29 @@ class HuaweiChargerEnergyCard extends HTMLElement {
       return Number.isFinite(parsed) ? parsed : fallback;
     };
 
-    const sessionEnergy = safeParse(sessionEnergyEntity?.state, 0);
-    const sessionDuration = safeParse(sessionDurationEntity?.state, 0);
-    const totalEnergy = safeParse(totalEnergyEntity?.state, 0);
-    const currentPower = safeParse(currentPowerEntity?.state, 0);
+    const hasSessionEnergy = this._isEntityAvailable(sessionEnergyEntity);
+    const hasSessionDuration = this._isEntityAvailable(sessionDurationEntity);
+    const hasTotalEnergy = this._isEntityAvailable(totalEnergyEntity);
+    const hasCurrentPower = this._isEntityAvailable(currentPowerEntity);
+
+    if (!hasSessionEnergy && !hasSessionDuration && !hasTotalEnergy && !hasCurrentPower) {
+      this.shadowRoot.innerHTML = `
+        <ha-card>
+          <div class="card-content">
+            <div class="error">
+              <h3>No compatible energy entities available</h3>
+              <p>The card will render automatically when Huawei exposes power or energy data.</p>
+            </div>
+          </div>
+        </ha-card>
+      `;
+      return;
+    }
+
+    const sessionEnergy = hasSessionEnergy ? safeParse(sessionEnergyEntity.state, 0) : 0;
+    const sessionDuration = hasSessionDuration ? safeParse(sessionDurationEntity.state, 0) : 0;
+    const totalEnergy = hasTotalEnergy ? safeParse(totalEnergyEntity.state, 0) : 0;
+    const currentPower = hasCurrentPower ? safeParse(currentPowerEntity.state, 0) : 0;
 
     const configMax = safeParse(this.config?.max_session_energy, NaN);
     const dynamicMaxAttr = safeParse(dynamicLimitEntity?.attributes?.max, NaN);
@@ -132,7 +182,9 @@ class HuaweiChargerEnergyCard extends HTMLElement {
 
     // Calculate session metrics
     const sessionCost = sessionEnergy * this.config.energy_cost;
-    const averagePower = sessionDuration > 0 ? (sessionEnergy / (sessionDuration / 60)) : 0;
+    const averagePower = hasSessionEnergy && hasSessionDuration && sessionDuration > 0
+      ? (sessionEnergy / (sessionDuration / 60))
+      : 0;
     const sessionHours = Math.floor(sessionDuration / 60);
     const sessionMinutes = Math.floor(sessionDuration % 60);
 
@@ -145,6 +197,55 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     const powerUsagePercent = sessionCapacity > 0 && currentPower > 0
       ? Math.min(Math.max((currentPower / sessionCapacity) * 100, 0), 999)
       : 0;
+    const energyItems = [];
+
+    if (hasSessionEnergy) {
+      energyItems.push(`
+        <div class="energy-item">
+          <ha-icon class="energy-icon" icon="mdi:battery-charging-outline"></ha-icon>
+          <div class="energy-value">${sessionEnergy.toFixed(2)}</div>
+          <div class="energy-label">Session kWh</div>
+        </div>
+      `);
+    }
+
+    if (hasSessionDuration) {
+      energyItems.push(`
+        <div class="energy-item">
+          <ha-icon class="energy-icon" icon="mdi:clock-outline"></ha-icon>
+          <div class="energy-value">${sessionHours}h ${sessionMinutes}m</div>
+          <div class="energy-label">Duration</div>
+        </div>
+      `);
+    }
+
+    if (hasTotalEnergy) {
+      energyItems.push(`
+        <div class="energy-item">
+          <ha-icon class="energy-icon" icon="mdi:sigma"></ha-icon>
+          <div class="energy-value">${totalEnergy.toFixed(1)}</div>
+          <div class="energy-label">Total kWh</div>
+        </div>
+      `);
+    }
+
+    if (hasSessionEnergy && hasSessionDuration) {
+      energyItems.push(`
+        <div class="energy-item">
+          <ha-icon class="energy-icon" icon="mdi:speedometer"></ha-icon>
+          <div class="energy-value">${averagePower.toFixed(1)}</div>
+          <div class="energy-label">Avg Power</div>
+        </div>
+      `);
+    } else if (hasCurrentPower) {
+      energyItems.push(`
+        <div class="energy-item">
+          <ha-icon class="energy-icon" icon="mdi:flash"></ha-icon>
+          <div class="energy-value">${currentPower.toFixed(1)}</div>
+          <div class="energy-label">Current kW</div>
+        </div>
+      `);
+    }
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -289,74 +390,64 @@ class HuaweiChargerEnergyCard extends HTMLElement {
           <div class="card-header">
             <ha-icon icon="mdi:chart-line"></ha-icon>
             <h3 class="card-title">Energy Monitoring</h3>
-            ${currentPower > 0 ? '<span class="charging-indicator"></span>' : ''}
+            ${hasCurrentPower && currentPower > 0 ? '<span class="charging-indicator"></span>' : ''}
           </div>
           
           <div class="energy-grid">
-            <div class="energy-item">
-              <ha-icon class="energy-icon" icon="mdi:battery-charging-outline"></ha-icon>
-              <div class="energy-value">${sessionEnergy.toFixed(2)}</div>
-              <div class="energy-label">Session kWh</div>
-            </div>
-            
-            <div class="energy-item">
-              <ha-icon class="energy-icon" icon="mdi:clock-outline"></ha-icon>
-              <div class="energy-value">${sessionHours}h ${sessionMinutes}m</div>
-              <div class="energy-label">Duration</div>
-            </div>
-            
-            <div class="energy-item">
-              <ha-icon class="energy-icon" icon="mdi:sigma"></ha-icon>
-              <div class="energy-value">${totalEnergy.toFixed(1)}</div>
-              <div class="energy-label">Total kWh</div>
-            </div>
-            
-            <div class="energy-item">
-              <ha-icon class="energy-icon" icon="mdi:speedometer"></ha-icon>
-              <div class="energy-value">${averagePower.toFixed(1)}</div>
-              <div class="energy-label">Avg Power</div>
-            </div>
+            ${energyItems.join('')}
           </div>
 
-          <div class="session-details">
-            <div class="session-title">
-              <ha-icon icon="mdi:information-outline"></ha-icon>
-              Current Session
-            </div>
-            <div class="session-stats">
-              <div class="stat-item">
-                <span class="stat-label">Current Power:</span>
-                <span class="stat-value">${currentPower.toFixed(1)} kW</span>
+          ${(hasCurrentPower || (this.config.show_cost && hasSessionEnergy) || (hasCurrentPower && estimatedTimeToFull > 0)) ? `
+            <div class="session-details">
+              <div class="session-title">
+                <ha-icon icon="mdi:information-outline"></ha-icon>
+                Current Session
               </div>
-              ${this.config.show_cost ? `
-                <div class="stat-item">
-                  <span class="stat-label">Session Cost:</span>
-                  <span class="stat-value cost-highlight">${this.config.currency}${sessionCost.toFixed(2)}</span>
-                </div>
-              ` : ''}
-              ${currentPower > 0 && estimatedTimeToFull > 0 ? `
-                <div class="stat-item">
-                  <span class="stat-label">Est. Full Time:</span>
-                  <span class="stat-value">${estHours}h ${estMinutes}m</span>
-                </div>
-              ` : ''}
+              <div class="session-stats">
+                ${hasCurrentPower ? `
+                  <div class="stat-item">
+                    <span class="stat-label">Current Power:</span>
+                    <span class="stat-value">${currentPower.toFixed(1)} kW</span>
+                  </div>
+                ` : ''}
+                ${this.config.show_cost && hasSessionEnergy ? `
+                  <div class="stat-item">
+                    <span class="stat-label">Session Cost:</span>
+                    <span class="stat-value cost-highlight">${this.config.currency}${sessionCost.toFixed(2)}</span>
+                  </div>
+                ` : ''}
+                ${hasCurrentPower && currentPower > 0 && estimatedTimeToFull > 0 ? `
+                  <div class="stat-item">
+                    <span class="stat-label">Est. Full Time:</span>
+                    <span class="stat-value">${estHours}h ${estMinutes}m</span>
+                  </div>
+                ` : ''}
+              </div>
             </div>
-          </div>
+          ` : ''}
 
-          <div class="power-trend">
-            <div class="trend-item">
-              <div class="trend-value">${sessionProgress.toFixed(0)}%</div>
-              <div class="trend-label">Battery Progress</div>
+          ${(hasSessionEnergy || (hasSessionEnergy && hasSessionDuration) || hasCurrentPower) ? `
+            <div class="power-trend">
+              ${hasSessionEnergy ? `
+                <div class="trend-item">
+                  <div class="trend-value">${sessionProgress.toFixed(0)}%</div>
+                  <div class="trend-label">Battery Progress</div>
+                </div>
+              ` : ''}
+              ${hasSessionEnergy && hasSessionDuration ? `
+                <div class="trend-item">
+                  <div class="trend-value">${averagePower.toFixed(1)}</div>
+                  <div class="trend-label">Average Power (kW)</div>
+                </div>
+              ` : ''}
+              ${hasCurrentPower ? `
+                <div class="trend-item">
+                  <div class="trend-value">${Math.round(powerUsagePercent)}%</div>
+                  <div class="trend-label">Limit Usage</div>
+                </div>
+              ` : ''}
             </div>
-            <div class="trend-item">
-              <div class="trend-value">${sessionDuration > 0 ? averagePower.toFixed(1) : '0.0'}</div>
-              <div class="trend-label">Average Power (kW)</div>
-            </div>
-            <div class="trend-item">
-              <div class="trend-value">${Math.round(powerUsagePercent)}%</div>
-              <div class="trend-label">Limit Usage</div>
-            </div>
-          </div>
+          ` : ''}
         </div>
       </ha-card>
     `;

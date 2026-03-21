@@ -70,6 +70,70 @@ class HuaweiChargerControlCard extends HTMLElement {
     return 4;
   }
 
+  _normalizeStateValue(value) {
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  _isEntityAvailable(entity) {
+    if (!entity) return false;
+    const state = this._normalizeStateValue(entity.state);
+    return state !== '' && state !== 'unknown' && state !== 'unavailable' && state !== 'none';
+  }
+
+  _findEntityBySuffixes(huaweiEntities, suffixes, configuredEntityId = null) {
+    if (configuredEntityId && this._hass.states?.[configuredEntityId]) {
+      return this._hass.states[configuredEntityId];
+    }
+
+    for (const suffix of suffixes) {
+      const found = huaweiEntities.find(
+        (id) => id.endsWith(`_${suffix}`) || id.endsWith(`.${suffix}`)
+      );
+      if (found) {
+        return this._hass.states[found];
+      }
+    }
+
+    return null;
+  }
+
+  _deriveCableStatus(currentPowerEntity, pluggedInEntity) {
+    const currentPower = parseFloat(currentPowerEntity?.state);
+    const pluggedInValue = this._normalizeStateValue(pluggedInEntity?.state);
+
+    if (Number.isFinite(currentPower) && currentPower > 0.1) {
+      return {
+        status: 'Charging',
+        icon: 'mdi:battery-charging',
+        color: 'charging'
+      };
+    }
+
+    if (['2', 'ready'].includes(pluggedInValue)) {
+      return {
+        status: 'Ready',
+        icon: 'mdi:power-plug',
+        color: 'ready'
+      };
+    }
+
+    if (
+      ['1', 'connected'].includes(pluggedInValue)
+    ) {
+      return {
+        status: 'Idle',
+        icon: 'mdi:power-plug',
+        color: 'connected'
+      };
+    }
+
+    return {
+      status: 'Unknown',
+      icon: 'mdi:help-circle',
+      color: 'disconnected'
+    };
+  }
+
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
     
@@ -79,7 +143,10 @@ class HuaweiChargerControlCard extends HTMLElement {
         id.includes('dynamic_power_limit') || 
         id.includes('fixed_max_charging_power') || 
         id.includes('fixed_max_power') ||
-        id.includes('plugged_in')
+        id.includes('current_power') ||
+        id.includes('charging_power') ||
+        id.includes('plugged_in') ||
+        id.includes('plugged')
       )
     );
     
@@ -118,34 +185,53 @@ class HuaweiChargerControlCard extends HTMLElement {
       id.includes('huawei_charger')
     );
     
-    const findEntity = (patterns) => {
-      for (const pattern of patterns) {
-        const found = huaweiEntities.find(id => id.includes(pattern));
-        if (found) return this._hass.states[found];
-      }
-      return null;
-    };
-    
-    const dynamicEntity = findEntity(['dynamic_power_limit']) ||
-                          this._hass.states?.[this.config.dynamic_power_entity];
-    const fixedEntity = findEntity(['fixed_max_charging_power', 'fixed_max_power']) ||
-                        this._hass.states?.[this.config.fixed_power_entity];
-    const pluggedInEntity = findEntity(['plugged_in']) ||
-                           this._hass.states?.[this.config.plugged_in_entity];
-    
-    // If no power control entities found, show helpful message
-    if (!dynamicEntity) {
+    const dynamicEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['dynamic_power_limit'],
+      this.config.dynamic_power_entity
+    );
+    const fixedEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['fixed_max_charging_power', 'fixed_max_power'],
+      this.config.fixed_power_entity
+    );
+    const currentPowerEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['current_power', 'charging_power'],
+      this.config.current_power_entity
+    );
+    const pluggedInEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['plugged_in', 'plugged'],
+      this.config.plugged_in_entity
+    );
+
+    if (huaweiEntities.length === 0) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
             <div class="error">
-              <h3>No power control entities found</h3>
-              <p>Available Huawei Charger entities:</p>
-              <ul style="text-align: left; margin: 8px 0;">
-                ${huaweiEntities.slice(0, 10).map(id => `<li><code>${id}</code></li>`).join('')}
-                ${huaweiEntities.length > 10 ? `<li>... and ${huaweiEntities.length - 10} more</li>` : ''}
-              </ul>
-              <p>Make sure the integration includes number entities for power control.</p>
+              <h3>No Huawei Charger entities found</h3>
+              <p>Make sure the Huawei Charger integration is installed and configured.</p>
+            </div>
+          </div>
+        </ha-card>
+      `;
+      return;
+    }
+
+    const hasDynamic = this._isEntityAvailable(dynamicEntity);
+    const hasFixed = this._isEntityAvailable(fixedEntity);
+    const hasCurrentPower = this._isEntityAvailable(currentPowerEntity);
+    const hasPluggedState = this._isEntityAvailable(pluggedInEntity);
+
+    if (!hasDynamic && !hasFixed && !hasCurrentPower && !hasPluggedState) {
+      this.shadowRoot.innerHTML = `
+        <ha-card>
+          <div class="card-content">
+            <div class="error">
+              <h3>No compatible charger control entities available</h3>
+              <p>The card will render controls automatically when Huawei exposes writable limit signals.</p>
             </div>
           </div>
         </ha-card>
@@ -159,39 +245,24 @@ class HuaweiChargerControlCard extends HTMLElement {
     };
 
     // Use pending value if we have one, otherwise use actual entity state
-    const dynamicValue = this._pendingValue !== null ? this._pendingValue : toNumber(dynamicEntity.state, 0);
-    const fixedValue = toNumber(fixedEntity?.state, 0);
-    const pluggedInValue = pluggedInEntity?.state;
-    
-    // Interpret plugged-in status values
-    let cableStatus = 'Disconnected';
-    let cableIcon = 'mdi:power-plug-off';
-    let cableColor = 'disconnected';
-    
-    if (pluggedInValue === '1') {
-      cableStatus = 'Connected';
-      cableIcon = 'mdi:power-plug';
-      cableColor = 'connected';
-    } else if (pluggedInValue === '3') {
-      cableStatus = 'Charging';
-      cableIcon = 'mdi:battery-charging';
-      cableColor = 'charging';
-    } else if (pluggedInValue === '2') {
-      cableStatus = 'Ready';
-      cableIcon = 'mdi:power-plug';
-      cableColor = 'ready';
-    }
-    const minValue = toNumber(dynamicEntity.attributes.min, 1.6);
-    const maxValue = toNumber(dynamicEntity.attributes.max, 7.4);
-    const step = toNumber(dynamicEntity.attributes.step, 0.1);
+    const dynamicValue = hasDynamic
+      ? (this._pendingValue !== null ? this._pendingValue : toNumber(dynamicEntity.state, 0))
+      : null;
+    const fixedValue = hasFixed ? toNumber(fixedEntity.state, 0) : null;
+    const cableState = (hasCurrentPower || hasPluggedState)
+      ? this._deriveCableStatus(currentPowerEntity, pluggedInEntity)
+      : null;
+    const minValue = hasDynamic ? toNumber(dynamicEntity.attributes.min, 1.6) : null;
+    const maxValue = hasDynamic ? toNumber(dynamicEntity.attributes.max, 7.4) : null;
+    const step = hasDynamic ? toNumber(dynamicEntity.attributes.step, 0.1) : null;
 
     // Preset power levels
-    const presets = [
+    const presets = hasDynamic ? [
       { label: 'Eco', value: Math.min(2.0, maxValue), icon: 'mdi:leaf' },
       { label: 'Normal', value: Math.min(3.7, maxValue), icon: 'mdi:flash' },
       { label: 'Fast', value: Math.min(7.4, maxValue), icon: 'mdi:lightning-bolt' },
       { label: 'Max', value: maxValue, icon: 'mdi:speedometer' }
-    ];
+    ] : [];
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -359,60 +430,73 @@ class HuaweiChargerControlCard extends HTMLElement {
             <h3 class="card-title">Power Control</h3>
           </div>
           
-          <div class="power-section">
-            <div class="section-title">Dynamic Power Limit</div>
-            <div class="power-slider-container">
-              <input 
-                type="range" 
-                class="power-input" 
-                min="${minValue}" 
-                max="${maxValue}" 
-                step="${step}" 
-                value="${dynamicValue}"
-                id="dynamic-slider"
-                ${this._isUpdating ? 'disabled' : ''}
-              >
-              <div class="power-display">
-                <span id="dynamic-display">${dynamicValue.toFixed(1)}</span>
-                <span class="power-unit">kW</span>
-                ${this._isUpdating ? '<span class="updating-indicator">⟳</span>' : ''}
+          ${hasDynamic ? `
+            <div class="power-section">
+              <div class="section-title">Dynamic Power Limit</div>
+              <div class="power-slider-container">
+                <input 
+                  type="range" 
+                  class="power-input" 
+                  min="${minValue}" 
+                  max="${maxValue}" 
+                  step="${step}" 
+                  value="${dynamicValue}"
+                  id="dynamic-slider"
+                  ${this._isUpdating ? 'disabled' : ''}
+                >
+                <div class="power-display">
+                  <span id="dynamic-display">${dynamicValue.toFixed(1)}</span>
+                  <span class="power-unit">kW</span>
+                  ${this._isUpdating ? '<span class="updating-indicator">⟳</span>' : ''}
+                </div>
+              </div>
+              <div class="slider-labels">
+                <span>${minValue}kW</span>
+                <span>${maxValue}kW</span>
               </div>
             </div>
-            <div class="slider-labels">
-              <span>${minValue}kW</span>
-              <span>${maxValue}kW</span>
-            </div>
-          </div>
 
-          <div class="preset-buttons">
-            ${presets.map(preset => `
-              <div class="preset-button ${Math.abs(dynamicValue - preset.value) < 0.1 ? 'active' : ''} ${this._isUpdating ? 'disabled' : ''}" 
-                   data-value="${preset.value}">
-                <ha-icon class="preset-icon" icon="${preset.icon}"></ha-icon>
-                <div class="preset-label">${preset.label}</div>
-                <div class="preset-value">${preset.value}kW</div>
+            <div class="preset-buttons">
+              ${presets.map(preset => `
+                <div class="preset-button ${Math.abs(dynamicValue - preset.value) < 0.1 ? 'active' : ''} ${this._isUpdating ? 'disabled' : ''}" 
+                     data-value="${preset.value}">
+                  <ha-icon class="preset-icon" icon="${preset.icon}"></ha-icon>
+                  <div class="preset-label">${preset.label}</div>
+                  <div class="preset-value">${preset.value}kW</div>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="current-settings" style="margin-top: 0;">
+              <div class="setting-row">
+                <span class="setting-label">Dynamic Limit:</span>
+                <span class="setting-value">Not exposed by Huawei</span>
               </div>
-            `).join('')}
-          </div>
+            </div>
+          `}
 
           <div class="current-settings">
-            <div class="setting-row">
-              <span class="setting-label">Dynamic Limit:</span>
-              <span class="setting-value">${dynamicValue.toFixed(1)} kW</span>
-            </div>
-            ${fixedEntity ? `
+            ${hasDynamic ? `
+              <div class="setting-row">
+                <span class="setting-label">Dynamic Limit:</span>
+                <span class="setting-value">${dynamicValue.toFixed(1)} kW</span>
+              </div>
+            ` : ''}
+            ${hasFixed ? `
               <div class="setting-row">
                 <span class="setting-label">Fixed Max Power:</span>
                 <span class="setting-value">${fixedValue.toFixed(1)} kW</span>
               </div>
             ` : ''}
-            <div class="setting-row">
-              <span class="setting-label">Cable Status:</span>
-              <span class="setting-value cable-status ${cableColor}">
-                <ha-icon icon="${cableIcon}"></ha-icon>
-                ${cableStatus}
-              </span>
-            </div>
+            ${cableState ? `
+              <div class="setting-row">
+                <span class="setting-label">Status:</span>
+                <span class="setting-value cable-status ${cableState.color}">
+                  <ha-icon icon="${cableState.icon}"></ha-icon>
+                  ${cableState.status}
+                </span>
+              </div>
+            ` : ''}
           </div>
         </div>
       </ha-card>

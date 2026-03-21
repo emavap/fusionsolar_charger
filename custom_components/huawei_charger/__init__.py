@@ -2,6 +2,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.lovelace.const import (
+    CONF_RESOURCE_TYPE_WS,
+    DOMAIN as LOVELACE_DOMAIN,
+)
+from homeassistant.const import CONF_URL
 import os
 import logging
 
@@ -17,6 +22,29 @@ CUSTOM_CARDS = [
     "huawei-charger-energy-card.js",
     "huawei-charger-info-card.js"
 ]
+
+
+async def _register_lovelace_resources(hass: HomeAssistant, card_urls: list[str]) -> None:
+    """Register custom cards as Lovelace module resources when available."""
+    lovelace_resources = hass.data.get(LOVELACE_DOMAIN, {}).get("resources")
+    if lovelace_resources is None or not hasattr(lovelace_resources, "async_create_item"):
+        return
+
+    await lovelace_resources.async_get_info()
+    existing_urls = {
+        item.get(CONF_URL)
+        for item in (lovelace_resources.async_items() or [])
+    }
+    for card_url in card_urls:
+        if card_url in existing_urls:
+            continue
+        await lovelace_resources.async_create_item(
+            {
+                CONF_URL: card_url,
+                CONF_RESOURCE_TYPE_WS: "module",
+            }
+        )
+        _LOGGER.warning("Registered Lovelace resource: %s", card_url)
 
 async def register_custom_cards(hass: HomeAssistant) -> None:
     """Register custom Lovelace cards by copying to www directory."""
@@ -50,11 +78,17 @@ async def register_custom_cards(hass: HomeAssistant) -> None:
 
     try:
         copied_cards, missing_cards = await hass.async_add_executor_job(_copy_cards)
+        card_urls = [
+            f"/local/community/huawei_charger/{card_file}"
+            for card_file in copied_cards
+        ]
 
         for card_file in copied_cards:
             card_url = f"/local/community/huawei_charger/{card_file}"
             add_extra_js_url(hass, card_url)
             _LOGGER.warning("Registered custom card: %s", card_file)
+
+        await _register_lovelace_resources(hass, card_urls)
 
         for missing in missing_cards:
             _LOGGER.warning("Custom card file not found: %s", os.path.join(source_www_dir, missing))

@@ -32,6 +32,33 @@ class HuaweiChargerInfoCard extends HTMLElement {
     return this.config.show_diagnostic ? 5 : 3;
   }
 
+  _normalizeStateValue(value) {
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  _isEntityAvailable(entity) {
+    if (!entity) return false;
+    const state = this._normalizeStateValue(entity.state);
+    return state !== '' && state !== 'unknown' && state !== 'unavailable' && state !== 'none';
+  }
+
+  _findEntityBySuffixes(huaweiEntities, suffixes, configuredEntityId = null) {
+    if (configuredEntityId && this._hass.states?.[configuredEntityId]) {
+      return this._hass.states[configuredEntityId];
+    }
+
+    for (const suffix of suffixes) {
+      const found = huaweiEntities.find(
+        (id) => id.endsWith(`_${suffix}`) || id.endsWith(`.${suffix}`)
+      );
+      if (found) {
+        return this._hass.states[found];
+      }
+    }
+
+    return null;
+  }
+
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
     
@@ -39,16 +66,24 @@ class HuaweiChargerInfoCard extends HTMLElement {
     const huaweiEntities = Object.keys(hass.states).filter(id => 
       id.includes('huawei_charger') && (
         id.includes('device_name') ||
+        id.includes('alias') ||
+        id.includes('esn') ||
         id.includes('serial_number') ||
         id.includes('software_version') ||
         id.includes('hardware_version') ||
         id.includes('device_model') ||
+        id.includes('model') ||
+        id.includes('rated_charging_power') ||
         id.includes('rated_power') ||
         id.includes('temperature') ||
         id.includes('lock_status') ||
         id.includes('error_code') ||
         id.includes('warning_code') ||
-        id.includes('voltage')
+        id.includes('voltage') ||
+        id.includes('network_mode') ||
+        id.includes('grounding_system') ||
+        id.includes('authentication_type') ||
+        id.includes('encrypt_type')
       )
     );
     
@@ -77,44 +112,92 @@ class HuaweiChargerInfoCard extends HTMLElement {
       id.includes('huawei_charger')
     );
     
-    const findEntity = (patterns) => {
-      for (const pattern of patterns) {
-        const found = huaweiEntities.find(id => id.includes(pattern));
-        if (found) return this._hass.states[found];
-      }
-      return null;
-    };
-    
     // Get device info entities
-    const deviceName = findEntity(['device_name', 'name']);
-    const serialNumber = findEntity(['device_serial_number', 'serial_number']);
-    const softwareVersion = findEntity(['software_version']);
-    const hardwareVersion = findEntity(['hardware_version']);
-    const deviceModel = findEntity(['device_model', 'model']);
-    const ratedPower = findEntity(['rated_power']);
-    const temperature = findEntity(['temperature']);
-    const lockStatus = findEntity(['lock_status']);
-    const errorCode = findEntity(['error_code']);
-    const warningCode = findEntity(['warning_code']);
+    const deviceName = this._findEntityBySuffixes(huaweiEntities, ['device_name', 'alias']);
+    const serialNumber = this._findEntityBySuffixes(huaweiEntities, ['esn', 'device_serial_number', 'serial_number']);
+    const softwareVersion = this._findEntityBySuffixes(huaweiEntities, ['software_version']);
+    const hardwareVersion = this._findEntityBySuffixes(huaweiEntities, ['hardware_version']);
+    const deviceModel = this._findEntityBySuffixes(huaweiEntities, ['device_model', 'model']);
+    const ratedPower = this._findEntityBySuffixes(huaweiEntities, ['rated_charging_power', 'rated_power']);
+    const temperature = this._findEntityBySuffixes(huaweiEntities, ['temperature']);
+    const lockStatus = this._findEntityBySuffixes(huaweiEntities, ['lock_status']);
+    const errorCode = this._findEntityBySuffixes(huaweiEntities, ['error_code']);
+    const warningCode = this._findEntityBySuffixes(huaweiEntities, ['warning_code']);
+    const networkMode = this._findEntityBySuffixes(huaweiEntities, ['network_mode']);
+    const groundingSystem = this._findEntityBySuffixes(huaweiEntities, ['grounding_system']);
+    const authType = this._findEntityBySuffixes(huaweiEntities, ['authentication_type']);
+    const encryptType = this._findEntityBySuffixes(huaweiEntities, ['encrypt_type']);
     
     // Get voltage sensors for diagnostic info
-    const phaseAVoltage = findEntity(['phase_a_voltage']);
-    const phaseBVoltage = findEntity(['phase_b_voltage']);
-    const phaseCVoltage = findEntity(['phase_c_voltage']);
+    const phaseAVoltage = this._findEntityBySuffixes(huaweiEntities, ['phase_a_voltage']);
+    const phaseBVoltage = this._findEntityBySuffixes(huaweiEntities, ['phase_b_voltage']);
+    const phaseCVoltage = this._findEntityBySuffixes(huaweiEntities, ['phase_c_voltage']);
     
-    // If no device info entities found, show helpful message
-    if (!deviceName && !serialNumber && !softwareVersion && !temperature) {
+    if (huaweiEntities.length === 0) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
             <div class="error">
-              <h3>No device information entities found</h3>
-              <p>Available Huawei Charger entities:</p>
-              <ul style="text-align: left; margin: 8px 0;">
-                ${huaweiEntities.slice(0, 10).map(id => `<li><code>${id}</code></li>`).join('')}
-                ${huaweiEntities.length > 10 ? `<li>... and ${huaweiEntities.length - 10} more</li>` : ''}
-              </ul>
-              <p>Make sure the integration includes device information sensor entities.</p>
+              <h3>No Huawei Charger entities found</h3>
+              <p>Make sure the Huawei Charger integration is installed and configured.</p>
+            </div>
+          </div>
+        </ha-card>
+      `;
+      return;
+    }
+
+    const detailRows = [];
+    const statusRows = [];
+    const diagnosticRows = [];
+    const hasTemperature = this._isEntityAvailable(temperature);
+
+    if (this._isEntityAvailable(deviceName)) {
+      detailRows.push({ label: 'Name', value: deviceName.state });
+    }
+    if (this._isEntityAvailable(deviceModel)) {
+      detailRows.push({ label: 'Model', value: deviceModel.state });
+    }
+    if (this._isEntityAvailable(serialNumber)) {
+      detailRows.push({ label: 'ESN', value: serialNumber.state });
+    }
+    if (this._isEntityAvailable(ratedPower)) {
+      detailRows.push({ label: 'Rated Power', value: `${ratedPower.state} kW` });
+    }
+
+    if (this._isEntityAvailable(softwareVersion)) {
+      statusRows.push({ label: 'Software', value: softwareVersion.state });
+    }
+    if (this._isEntityAvailable(hardwareVersion)) {
+      statusRows.push({ label: 'Hardware', value: hardwareVersion.state });
+    }
+    if (hasTemperature) {
+      statusRows.push({ label: 'Temperature', value: `${parseFloat(temperature.state || 0).toFixed(1)}°C` });
+    }
+    if (this._isEntityAvailable(lockStatus)) {
+      statusRows.push({ label: 'Lock Status', value: lockStatus.state === '1' ? 'Locked' : 'Unlocked' });
+    }
+    if (this._isEntityAvailable(networkMode)) {
+      statusRows.push({ label: 'Network Mode', value: networkMode.state });
+    }
+
+    if (this._isEntityAvailable(groundingSystem)) {
+      diagnosticRows.push({ label: 'Grounding System', value: groundingSystem.state });
+    }
+    if (this._isEntityAvailable(authType)) {
+      diagnosticRows.push({ label: 'Authentication Type', value: authType.state });
+    }
+    if (this._isEntityAvailable(encryptType)) {
+      diagnosticRows.push({ label: 'Encrypt Type', value: encryptType.state });
+    }
+
+    if (detailRows.length === 0 && statusRows.length === 0 && diagnosticRows.length === 0) {
+      this.shadowRoot.innerHTML = `
+        <ha-card>
+          <div class="card-content">
+            <div class="error">
+              <h3>No compatible device information entities available</h3>
+              <p>The card will render automatically when Huawei exposes model, version, or configuration metadata.</p>
             </div>
           </div>
         </ha-card>
@@ -123,9 +206,9 @@ class HuaweiChargerInfoCard extends HTMLElement {
     }
 
     // Determine device health status
-    let healthStatus = 'Good';
-    let healthColor = '#4CAF50';
-    let healthIcon = 'mdi:check-circle';
+    let healthStatus = 'Info';
+    let healthColor = '#2196F3';
+    let healthIcon = 'mdi:information';
     
     const errorCodeValue = parseInt(errorCode?.state) || 0;
     const warningCodeValue = parseInt(warningCode?.state) || 0;
@@ -139,6 +222,10 @@ class HuaweiChargerInfoCard extends HTMLElement {
       healthStatus = 'Warning';
       healthColor = '#FF9800';
       healthIcon = 'mdi:alert';
+    } else if (detailRows.length > 0 || statusRows.length > 0) {
+      healthStatus = 'Good';
+      healthColor = '#4CAF50';
+      healthIcon = 'mdi:check-circle';
     }
 
     this.shadowRoot.innerHTML = `
@@ -299,54 +386,45 @@ class HuaweiChargerInfoCard extends HTMLElement {
           </div>
           
           <div class="device-info">
-            <div class="info-section">
-              <div class="section-title">
-                <ha-icon icon="mdi:chip"></ha-icon>
-                Device Details
+            ${detailRows.length > 0 ? `
+              <div class="info-section">
+                <div class="section-title">
+                  <ha-icon icon="mdi:chip"></ha-icon>
+                  Device Details
+                </div>
+                ${detailRows.map((row) => `
+                  <div class="info-item">
+                    <span class="info-label">${row.label}:</span>
+                    <span class="info-value">${row.value}</span>
+                  </div>
+                `).join('')}
               </div>
-              <div class="info-item">
-                <span class="info-label">Name:</span>
-                <span class="info-value">${deviceName?.state || 'Unknown'}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Model:</span>
-                <span class="info-value">${deviceModel?.state || 'Unknown'}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Serial Number:</span>
-                <span class="info-value">${serialNumber?.state || 'Unknown'}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Rated Power:</span>
-                <span class="info-value">${ratedPower?.state || 'Unknown'} kW</span>
-              </div>
-            </div>
+            ` : ''}
 
-            <div class="info-section">
-              <div class="section-title">
-                <ha-icon icon="mdi:cog"></ha-icon>
-                Firmware & Status
+            ${statusRows.length > 0 ? `
+              <div class="info-section">
+                <div class="section-title">
+                  <ha-icon icon="mdi:cog"></ha-icon>
+                  Firmware & Status
+                </div>
+                ${statusRows.map((row) => `
+                  <div class="info-item">
+                    <span class="info-label">${row.label}:</span>
+                    <span class="info-value">${row.value}</span>
+                  </div>
+                `).join('')}
               </div>
-              <div class="info-item">
-                <span class="info-label">Software:</span>
-                <span class="info-value">${softwareVersion?.state || 'Unknown'}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Hardware:</span>
-                <span class="info-value">${hardwareVersion?.state || 'Unknown'}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Temperature:</span>
-                <span class="info-value">${temp.toFixed(1)}°C</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Lock Status:</span>
-                <span class="info-value">${lockStatus?.state === '1' ? 'Locked' : 'Unlocked'}</span>
-              </div>
-            </div>
+            ` : ''}
           </div>
 
-          ${this.config.show_diagnostic ? `
+          ${this.config.show_diagnostic && (
+            diagnosticRows.length > 0 ||
+            this._isEntityAvailable(phaseAVoltage) ||
+            this._isEntityAvailable(phaseBVoltage) ||
+            this._isEntityAvailable(phaseCVoltage) ||
+            this._isEntityAvailable(errorCode) ||
+            this._isEntityAvailable(warningCode)
+          ) ? `
             <div class="diagnostic-section">
               <div class="info-section">
                 <div class="section-title expandable">
@@ -355,40 +433,61 @@ class HuaweiChargerInfoCard extends HTMLElement {
                   <ha-icon icon="mdi:chevron-down" style="margin-left: auto;"></ha-icon>
                 </div>
                 <div class="diagnostic-content">
-                  <div class="voltage-readings">
-                    <div class="voltage-item">
-                      <div class="voltage-phase">Phase A</div>
-                      <div class="voltage-value">${parseFloat(phaseAVoltage?.state || 0).toFixed(1)}V</div>
+                  ${diagnosticRows.length > 0 ? diagnosticRows.map((row) => `
+                    <div class="info-item">
+                      <span class="info-label">${row.label}:</span>
+                      <span class="info-value">${row.value}</span>
                     </div>
-                    <div class="voltage-item">
-                      <div class="voltage-phase">Phase B</div>
-                      <div class="voltage-value">${parseFloat(phaseBVoltage?.state || 0).toFixed(1)}V</div>
+                  `).join('') : ''}
+
+                  ${(this._isEntityAvailable(phaseAVoltage) || this._isEntityAvailable(phaseBVoltage) || this._isEntityAvailable(phaseCVoltage)) ? `
+                    <div class="voltage-readings">
+                      ${this._isEntityAvailable(phaseAVoltage) ? `
+                        <div class="voltage-item">
+                          <div class="voltage-phase">Phase A</div>
+                          <div class="voltage-value">${parseFloat(phaseAVoltage.state).toFixed(1)}V</div>
+                        </div>
+                      ` : ''}
+                      ${this._isEntityAvailable(phaseBVoltage) ? `
+                        <div class="voltage-item">
+                          <div class="voltage-phase">Phase B</div>
+                          <div class="voltage-value">${parseFloat(phaseBVoltage.state).toFixed(1)}V</div>
+                        </div>
+                      ` : ''}
+                      ${this._isEntityAvailable(phaseCVoltage) ? `
+                        <div class="voltage-item">
+                          <div class="voltage-phase">Phase C</div>
+                          <div class="voltage-value">${parseFloat(phaseCVoltage.state).toFixed(1)}V</div>
+                        </div>
+                      ` : ''}
                     </div>
-                    <div class="voltage-item">
-                      <div class="voltage-phase">Phase C</div>
-                      <div class="voltage-value">${parseFloat(phaseCVoltage?.state || 0).toFixed(1)}V</div>
-                    </div>
-                  </div>
+                  ` : ''}
                   
-                  <div class="status-indicators">
-                    <div class="status-item">
-                      <ha-icon class="status-icon ${errorCodeValue > 0 ? 'status-error' : 'status-good'}" 
-                               icon="${errorCodeValue > 0 ? 'mdi:alert-circle' : 'mdi:check-circle'}"></ha-icon>
-                      <div>
-                        <div style="font-weight: 500;">Error Code</div>
-                        <div style="font-size: 0.8em; opacity: 0.7;">${errorCodeValue}</div>
-                      </div>
+                  ${(this._isEntityAvailable(errorCode) || this._isEntityAvailable(warningCode)) ? `
+                    <div class="status-indicators">
+                      ${this._isEntityAvailable(errorCode) ? `
+                        <div class="status-item">
+                          <ha-icon class="status-icon ${errorCodeValue > 0 ? 'status-error' : 'status-good'}" 
+                                   icon="${errorCodeValue > 0 ? 'mdi:alert-circle' : 'mdi:check-circle'}"></ha-icon>
+                          <div>
+                            <div style="font-weight: 500;">Error Code</div>
+                            <div style="font-size: 0.8em; opacity: 0.7;">${errorCodeValue}</div>
+                          </div>
+                        </div>
+                      ` : ''}
+                      
+                      ${this._isEntityAvailable(warningCode) ? `
+                        <div class="status-item">
+                          <ha-icon class="status-icon ${warningCodeValue > 0 ? 'status-warning' : 'status-good'}" 
+                                   icon="${warningCodeValue > 0 ? 'mdi:alert' : 'mdi:check-circle'}"></ha-icon>
+                          <div>
+                            <div style="font-weight: 500;">Warning Code</div>
+                            <div style="font-size: 0.8em; opacity: 0.7;">${warningCodeValue}</div>
+                          </div>
+                        </div>
+                      ` : ''}
                     </div>
-                    
-                    <div class="status-item">
-                      <ha-icon class="status-icon ${warningCodeValue > 0 ? 'status-warning' : 'status-good'}" 
-                               icon="${warningCodeValue > 0 ? 'mdi:alert' : 'mdi:check-circle'}"></ha-icon>
-                      <div>
-                        <div style="font-weight: 500;">Warning Code</div>
-                        <div style="font-size: 0.8em; opacity: 0.7;">${warningCodeValue}</div>
-                      </div>
-                    </div>
-                  </div>
+                  ` : ''}
                 </div>
               </div>
             </div>

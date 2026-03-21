@@ -2,13 +2,14 @@ from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, Sen
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.core import callback
 from homeassistant.const import (
     UnitOfPower, UnitOfEnergy, UnitOfElectricCurrent, UnitOfElectricPotential,
     UnitOfFrequency, UnitOfTemperature, UnitOfTime, PERCENTAGE
 )
 import logging
 
-from .const import DOMAIN, REGISTER_NAME_MAP
+from .const import DOMAIN, REGISTER_NAME_MAP, SENSITIVE_REGISTERS, WRITABLE_REGISTERS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,125 +26,57 @@ DEBUG_SENSOR_TYPES = {
 
 # Main sensors - visible by default (core charging information)
 MAIN_SENSOR_REGISTERS = [
-    "2101259",    # Phase A Voltage
-    "2101260",    # Phase B Voltage  
-    "2101261",    # Phase C Voltage
+    "current_power",  # Station current power
+    "10003",      # Rated Charging Power
     "10008",      # Total Energy Charged
-    "10009",      # Session Energy
-    "10010",      # Session Duration
-    "20012",      # Charging Status
-    "20017",      # Plugged In
-    "10003",      # Rated Power
-    "2101271",    # Internal Temperature (more reliable than 20014)
-]
-
-# Diagnostic sensors - hidden by default (technical/configuration data)
-DIAGNOSTIC_SENSOR_REGISTERS = [
-    # Device identification
-    "20011",      # Register 20011
-    "10001",      # Register 10001
-    "10002",      # Register 10002
-    "20029",      # Register 20029
-    "2101252",    # Register 2101252
-    "2101251",    # Register 2101251
-    "10007",      # Register 10007
-    "10012",      # Register 10012
-    
-    # Status and error codes
-    "20013",      # Register 20013
-    "20015",      # Register 20015
-    "20016",      # Register 20016
-    "20014",      # Register 20014 (problematic sensor, moved to diagnostic)
-    "15101",      # Register 15101
-    
-    # Network and IP configuration
-    "538976516",  # Register 538976516
-    "2101760",    # Register 2101760
-    "2101763",    # Register 2101763
-    "2101524",    # Register 2101524
-    "2101526",    # Register 2101526
-    "538976280",  # Register 538976280
-    "538976281",  # Register 538976281
-    "538976533",  # Register 538976533
-    "538976534",  # Register 538976534
-    
-    # Power configuration
-    "538976569",  # Register 538976569
-    "538976570",  # Register 538976570
-    "538976576",  # Register 538976576
-    
-    # System configuration
-    "10047",      # Register 10047
-    "538976288",  # Register 538976288
-    "538976289",  # Register 538976289
-    "538976308",  # Register 538976308
-    "538976515",  # Register 538976515
-    "538976517",  # Register 538976517
-    "538976518",  # Register 538976518
-    "538976519",  # Register 538976519
-    "538976520",  # Register 538976520
-    "538976558",  # Register 538976558
-    "538976790",  # Register 538976790
-    "538976800",  # Register 538976800
-    
-    # Reserved/Extended registers
-    "10035",      # Register 10035
-    "10034",      # Register 10034
-    "10100",      # Register 10100
-    "538976523",  # Register 538976523
-    "538976564",  # Register 538976564
-    "538976568",  # Register 538976568
-    "539006279",  # Register 539006279
-    "539006281",  # Register 539006281
-    "539006282",  # Register 539006282
-    "539006283",  # Register 539006283
-    "539006284",  # Register 539006284
-    "539006285",  # Register 539006285
-    "539006286",  # Register 539006286
-    "539006287",  # Register 539006287
-    "539006288",  # Register 539006288
-    "539006290",  # Register 539006290
-    "539006291",  # Register 539006291
-    "539006292",  # Register 539006292
-    "539006293",  # Register 539006293
 ]
 
 # Register configurations with units and device classes
 REGISTER_CONFIG = {
-    # Voltage related (confirmed in device data)
-    "2101259": {"unit": UnitOfElectricPotential.VOLT, "device_class": SensorDeviceClass.VOLTAGE, "state_class": SensorStateClass.MEASUREMENT},
-    "2101260": {"unit": UnitOfElectricPotential.VOLT, "device_class": SensorDeviceClass.VOLTAGE, "state_class": SensorStateClass.MEASUREMENT},
-    "2101261": {"unit": UnitOfElectricPotential.VOLT, "device_class": SensorDeviceClass.VOLTAGE, "state_class": SensorStateClass.MEASUREMENT},
-    
-    # Energy related (confirmed in device data)
+    "current_power": {"unit": UnitOfPower.KILO_WATT, "device_class": SensorDeviceClass.POWER, "state_class": SensorStateClass.MEASUREMENT},
+    # Energy related
     "10008": {"unit": UnitOfEnergy.KILO_WATT_HOUR, "device_class": SensorDeviceClass.ENERGY, "state_class": SensorStateClass.TOTAL_INCREASING},
-    "10009": {"unit": UnitOfEnergy.KILO_WATT_HOUR, "device_class": SensorDeviceClass.ENERGY, "state_class": SensorStateClass.TOTAL},
-    
-    # Time related (confirmed in device data)
-    "10010": {"unit": UnitOfTime.MINUTES, "device_class": SensorDeviceClass.DURATION, "state_class": SensorStateClass.TOTAL},
-    
-    # Temperature (confirmed in device data)
-    "20014": {"unit": UnitOfTemperature.CELSIUS, "device_class": SensorDeviceClass.TEMPERATURE, "state_class": SensorStateClass.MEASUREMENT},
-    "2101271": {"unit": UnitOfTemperature.CELSIUS, "device_class": SensorDeviceClass.TEMPERATURE, "state_class": SensorStateClass.MEASUREMENT},
-    "15101": {"unit": UnitOfTemperature.CELSIUS, "device_class": SensorDeviceClass.TEMPERATURE, "state_class": SensorStateClass.MEASUREMENT},
-    
-    # Power related (confirmed in device data)
+    # Current related
+    "20012": {"unit": UnitOfElectricCurrent.AMPERE, "device_class": SensorDeviceClass.CURRENT, "state_class": SensorStateClass.MEASUREMENT},
+    # Power related
     "10003": {"unit": UnitOfPower.KILO_WATT, "device_class": SensorDeviceClass.POWER},
-    "538976569": {"unit": UnitOfPower.KILO_WATT, "device_class": SensorDeviceClass.POWER},
-    "538976570": {"unit": UnitOfPower.KILO_WATT, "device_class": SensorDeviceClass.POWER},
+    # Timing related
+    "539006290": {"unit": UnitOfTime.MINUTES, "state_class": SensorStateClass.MEASUREMENT},
 }
 
-def _active_sensor_registers(data):
-    active_main = [reg_id for reg_id in MAIN_SENSOR_REGISTERS if reg_id in data]
-    active_diagnostic = [reg_id for reg_id in DIAGNOSTIC_SENSOR_REGISTERS if reg_id in data]
+
+def _register_sort_key(reg_id):
+    reg_id = str(reg_id)
+    return (0, int(reg_id)) if reg_id.isdigit() else (1, reg_id)
+
+
+def _active_sensor_registers(data, config_signal_values=None, existing_register_ids=None):
+    available_registers = {str(reg_id) for reg_id in data}
+    if config_signal_values:
+        available_registers.update(str(reg_id) for reg_id in config_signal_values)
+    if existing_register_ids:
+        available_registers.update(str(reg_id) for reg_id in existing_register_ids)
+
+    available_registers.difference_update(WRITABLE_REGISTERS)
+    available_registers.difference_update(SENSITIVE_REGISTERS)
+
+    active_main = [reg_id for reg_id in MAIN_SENSOR_REGISTERS if reg_id in available_registers]
+    active_diagnostic = sorted(
+        available_registers.difference(active_main),
+        key=_register_sort_key,
+    )
     return active_main, active_diagnostic
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     entities = []
+    registry = er.async_get(hass)
 
-    active_main, active_diagnostic = _active_sensor_registers(coordinator.data)
+    active_main, active_diagnostic = _active_sensor_registers(
+        coordinator.data,
+        coordinator.config_signal_values,
+    )
 
     for reg_id in active_main:
         entities.append(HuaweiChargerSensor(coordinator, reg_id, is_diagnostic=False))
@@ -154,26 +87,48 @@ async def async_setup_entry(hass, entry, async_add_entities):
     for debug_type in DEBUG_SENSOR_TYPES:
         entities.append(HuaweiChargerDebugSensor(coordinator, debug_type))
 
-    registry = er.async_get(hass)
-    active_unique_ids = {
-        f"{entry.entry_id}_sensor_{reg_id}"
-        for reg_id in active_main + active_diagnostic
-    }.union(
-        {
-            f"{entry.entry_id}_debug_{debug_type}"
-            for debug_type in DEBUG_SENSOR_TYPES
-        }
-    )
     for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if (
             registry_entry.domain == "sensor"
             and registry_entry.unique_id
-            and registry_entry.unique_id.startswith(f"{entry.entry_id}_")
-            and registry_entry.unique_id not in active_unique_ids
+            and registry_entry.unique_id
+            in {
+                f"{entry.entry_id}_sensor_{sensitive_reg_id}"
+                for sensitive_reg_id in SENSITIVE_REGISTERS
+            }
         ):
             registry.async_remove(registry_entry.entity_id)
 
     async_add_entities(entities)
+
+    known_register_ids = set(active_main + active_diagnostic)
+
+    @callback
+    def _async_add_new_sensors():
+        nonlocal known_register_ids
+
+        updated_main, updated_diagnostic = _active_sensor_registers(
+            coordinator.data,
+            coordinator.config_signal_values,
+            known_register_ids,
+        )
+        updated_register_ids = set(updated_main + updated_diagnostic)
+        new_register_ids = updated_register_ids.difference(known_register_ids)
+        if not new_register_ids:
+            return
+
+        new_entities = [
+            HuaweiChargerSensor(
+                coordinator,
+                reg_id,
+                is_diagnostic=reg_id not in MAIN_SENSOR_REGISTERS,
+            )
+            for reg_id in sorted(new_register_ids, key=_register_sort_key)
+        ]
+        known_register_ids.update(new_register_ids)
+        async_add_entities(new_entities)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
 
 class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, reg_id, is_diagnostic=False):
@@ -181,11 +136,8 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
         self.coordinator = coordinator
         self._reg_id = reg_id
         self._is_diagnostic = is_diagnostic
-        # Use register numbers for diagnostic sensors, mapped names for main sensors
-        if is_diagnostic:
-            self._attr_name = f"Register {reg_id}"
-        else:
-            self._attr_name = REGISTER_NAME_MAP.get(reg_id, f"Register {reg_id}")
+        mapped_name = REGISTER_NAME_MAP.get(reg_id)
+        self._attr_name = mapped_name or f"Register {reg_id}"
         self._attr_unique_id = f"{coordinator.entry.entry_id}_sensor_{reg_id}"
         
         # Set entity category for diagnostic sensors
@@ -210,7 +162,10 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
-        raw_value = self.coordinator.data.get(self._reg_id)
+        if self._reg_id in SENSITIVE_REGISTERS:
+            return None
+
+        raw_value = self.coordinator.get_register_value(self._reg_id)
         
         # Return None if no data available
         if raw_value is None:
@@ -219,50 +174,20 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
         # Convert values if needed
         try:
             # For power values, ensure they're in kW
-            if self._reg_id in ["10003", "538976569", "538976570"] and isinstance(raw_value, (int, float)):
+            if self._reg_id in ["current_power", "10003", "538976569", "538976570"] and isinstance(raw_value, (int, float)):
                 # Convert W to kW if the value seems to be in watts
                 if raw_value > 100:  # Assume values > 100 are in watts
                     return raw_value / 1000
                 return float(raw_value)
             
-            # For temperature values, ensure proper formatting
-            if self._reg_id in ["20014", "2101271", "15101"]:
-                if isinstance(raw_value, (int, float)):
-                    temp_value = float(raw_value)
-                    
-                    # Register 20014 appears to have issues, apply temperature offset if available
-                    if self._reg_id == "20014":
-                        offset_value = self.coordinator.data.get("15101")
-                        if offset_value is not None:
-                            try:
-                                offset = float(offset_value)
-                                temp_value = temp_value - offset  # Apply temperature offset correction
-                                self._log_warning(
-                                    "Temperature %s: raw=%s, offset=%s, corrected=%s",
-                                    self._reg_id,
-                                    raw_value,
-                                    offset,
-                                    temp_value,
-                                )
-                            except (ValueError, TypeError):
-                                self._log_warning("Invalid temperature offset value: %s", offset_value)
-                    
-                    return round(temp_value, 1)
-                    
             # For energy values, ensure proper formatting
-            if self._reg_id in ["10008", "10009"]:
+            if self._reg_id in ["10008"]:
                 if isinstance(raw_value, (int, float)):
                     return round(float(raw_value), 3)
-                    
-            # For voltage values, ensure proper formatting
-            if self._reg_id in ["2101259", "2101260", "2101261"]:
-                if isinstance(raw_value, (int, float)):
-                    return round(float(raw_value), 1)
-                    
-            # For time values (session duration in minutes)
-            if self._reg_id == "10010":
-                if isinstance(raw_value, (int, float)):
-                    return int(raw_value)
+
+            # For current/time values, ensure proper formatting
+            if self._reg_id in ["20012", "539006290"] and isinstance(raw_value, (int, float)):
+                return int(raw_value) if float(raw_value).is_integer() else round(float(raw_value), 1)
                     
             # Special handling for Device Info register (2101251)
             if self._reg_id == "2101251":
@@ -315,13 +240,19 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def available(self):
-        return self.coordinator.data.get(self._reg_id) is not None
+        if self._reg_id in SENSITIVE_REGISTERS:
+            return False
+        return self.coordinator.get_register_value(self._reg_id) is not None
 
     @property
     def extra_state_attributes(self):
         return {
             "register_id": self._reg_id,
-            "raw_value": self.coordinator.get_register_value(self._reg_id),
+            "raw_value": (
+                "***"
+                if self._reg_id in SENSITIVE_REGISTERS
+                else self.coordinator.get_register_value(self._reg_id)
+            ),
             "stale": not self.coordinator.last_update_success,
         }
 

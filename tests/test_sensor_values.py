@@ -1,10 +1,13 @@
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
+from custom_components.huawei_charger import binary_sensor
 from custom_components.huawei_charger.binary_sensor import (
     HuaweiChargerCredentialsRejectedBinarySensor,
 )
+from custom_components.huawei_charger.const import DOMAIN
 from custom_components.huawei_charger.sensor import (
     HuaweiChargerDebugSensor,
     HuaweiChargerSensor,
@@ -54,6 +57,14 @@ def test_power_sensor_converts_watts_to_kw():
     assert sensor.native_value == pytest.approx(7.4)
 
 
+def test_current_power_sensor_uses_power_value():
+    coordinator = DummyCoordinator({"current_power": 3.7})
+    sensor = HuaweiChargerSensor(coordinator, "current_power")
+
+    assert sensor.name == "Current Power"
+    assert sensor.native_value == pytest.approx(3.7)
+
+
 def test_voltage_sensor_rounds_to_one_decimal():
     coordinator = DummyCoordinator({"2101259": 231})
     sensor = HuaweiChargerSensor(coordinator, "2101259")
@@ -61,11 +72,12 @@ def test_voltage_sensor_rounds_to_one_decimal():
     assert sensor.native_value == pytest.approx(231.0)
 
 
-def test_temperature_sensor_applies_offset():
-    coordinator = DummyCoordinator({"20014": 25.5, "15101": -2})
+def test_network_mode_sensor_returns_raw_numeric_value():
+    coordinator = DummyCoordinator({"20014": 1})
     sensor = HuaweiChargerSensor(coordinator, "20014", is_diagnostic=True)
 
-    assert sensor.native_value == pytest.approx(27.5, rel=1e-3)
+    assert sensor.name == "Network Mode"
+    assert sensor.native_value == 1
 
 
 def test_device_info_sensor_extracts_summary():
@@ -113,6 +125,15 @@ def test_sensor_extra_state_attributes():
     assert attrs["stale"] is False
 
 
+def test_sensitive_register_is_masked_and_unavailable():
+    coordinator = DummyCoordinator({"20034": "secret"})
+    sensor = HuaweiChargerSensor(coordinator, "20034", is_diagnostic=True)
+
+    assert sensor.available is False
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes["raw_value"] == "***"
+
+
 def test_debug_update_sensor_attributes():
     coordinator = DummyCoordinator({"20017": True})
     sensor = HuaweiChargerDebugSensor(coordinator, "update")
@@ -157,14 +178,104 @@ def test_credentials_rejected_binary_sensor_off():
     assert sensor.is_on is False
 
 
+@pytest.mark.asyncio
+async def test_binary_sensor_setup_removes_legacy_auth_sensor(monkeypatch):
+    coordinator = DummyCoordinator({"20017": True})
+    entry = SimpleNamespace(entry_id="test_entry")
+    registry = MagicMock()
+    registry_entries = [
+        SimpleNamespace(
+            domain="binary_sensor",
+            unique_id="test_entry_credentials_rejected",
+            entity_id="binary_sensor.huawei_charger_credentials_rejected",
+        ),
+        SimpleNamespace(
+            domain="binary_sensor",
+            unique_id="test_entry_reauthentication_required",
+            entity_id="binary_sensor.huawei_charger_reauthentication_required",
+        ),
+    ]
+    hass = SimpleNamespace(data={DOMAIN: {entry.entry_id: coordinator}})
+    added_entities = []
+
+    monkeypatch.setattr(binary_sensor.er, "async_get", lambda hass_arg: registry)
+    monkeypatch.setattr(
+        binary_sensor.er,
+        "async_entries_for_config_entry",
+        lambda registry_arg, entry_id: registry_entries,
+    )
+
+    await binary_sensor.async_setup_entry(
+        hass,
+        entry,
+        lambda entities: added_entities.extend(entities),
+    )
+
+    registry.async_remove.assert_called_once_with(
+        "binary_sensor.huawei_charger_credentials_rejected"
+    )
+    assert len(added_entities) == 1
+    assert added_entities[0].unique_id == "test_entry_reauthentication_required"
+
+
 def test_active_sensor_registers_only_returns_present_registers():
     main, diagnostic = _active_sensor_registers(
         {
+            "current_power": 3.7,
             "10008": 1.2,
+            "20012": 40,
             "10007": "model",
             "99999": "ignore",
-        }
+        },
+        {
+            "20001": 4.0,
+            "538976598": 7.4,
+            "33595393": "SCharger",
+        },
     )
 
-    assert main == ["10008"]
-    assert diagnostic == ["10007"]
+    assert main == ["current_power", "10008"]
+    assert diagnostic == ["10007", "20012", "99999", "33595393"]
+
+
+def test_active_sensor_registers_preserves_existing_ids_and_skips_sensitive():
+    main, diagnostic = _active_sensor_registers(
+        {"current_power": 3.7},
+        {"20034": "secret"},
+        existing_register_ids={"20012", "20034", "10007"},
+    )
+
+    assert main == ["current_power"]
+    assert diagnostic == ["10007", "20012"]
+
+
+def test_active_sensor_registers_does_not_keep_missing_registry_ids_by_default():
+    main, diagnostic = _active_sensor_registers(
+        {"current_power": 3.7},
+        None,
+    )
+
+    assert main == ["current_power"]
+    assert diagnostic == []
+
+
+def test_known_diagnostic_register_uses_mapped_name():
+    coordinator = DummyCoordinator({"10007": "SCharger-7KS-S0"})
+    sensor = HuaweiChargerSensor(coordinator, "10007", is_diagnostic=True)
+
+    assert sensor.name == "Model"
+
+
+def test_unknown_diagnostic_register_keeps_raw_name():
+    coordinator = DummyCoordinator({"10047": 6})
+    sensor = HuaweiChargerSensor(coordinator, "10047", is_diagnostic=True)
+
+    assert sensor.name == "Register 10047"
+
+
+def test_main_breaker_current_sensor_uses_ampere_unit():
+    coordinator = DummyCoordinator({"20012": 40})
+    sensor = HuaweiChargerSensor(coordinator, "20012", is_diagnostic=True)
+
+    assert sensor.name == "Main Breaker Rated Current"
+    assert sensor.native_value == 40

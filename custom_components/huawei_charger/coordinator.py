@@ -73,6 +73,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         self.dn_id = None
         self.wallbox_dn = None
         self.wallbox_dn_id = None
+        self.station_values = {}
         self.param_values = {}
         self.config_signal_details = {}
         self.config_signal_values = {}
@@ -216,7 +217,12 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         if not data.get("data", {}).get("list"):
             raise ValueError("No stations found in account")
         
-        self.dn_id = data["data"]["list"][0]["dn"]
+        station = data["data"]["list"][0]
+        self.dn_id = station["dn"]
+        current_power = station.get("currentPower")
+        self.station_values = {}
+        if current_power is not None:
+            self.station_values["current_power"] = self._convert_register_value(current_power)
 
     def fetch_wallbox_info(self):
         url = f"https://{self.region_ip}:32800/rest/neteco/web/config/device/v1/device-list"
@@ -254,6 +260,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                     "Using wallbox realtime-data signals because device-list returned limited paramValues"
                 )
                 self.param_values.update(realtime_values)
+        self.param_values.update(self.station_values)
         self._update_register_debug_state()
 
         if self.param_values or self.config_signal_values:
@@ -262,7 +269,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             )
             self._debug_log("Available register IDs from charger: %s", sorted(available_registers))
 
-            for reg_id in WRITABLE_REGISTERS + ["10009", "10010", "20012", "20017"]:
+            for reg_id in WRITABLE_REGISTERS + ["10009", "10010", "20017"]:
                 reg_value = self.get_register_value(reg_id)
                 if reg_value is not None:
                     self._debug_log("Register %s value: %s", reg_id, reg_value)
@@ -711,7 +718,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
 
     def _has_expected_registers(self, param_values):
         expected_registers = set(WRITABLE_REGISTERS).union(
-            {"10008", "10009", "10010", "20012", "20017", "2101259", "2101260", "2101261"}
+            {"10008", "10009", "10010", "20017", "2101259", "2101260", "2101261"}
         )
         return any(reg_id in param_values for reg_id in expected_registers)
 
@@ -721,7 +728,6 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             "10008",
             "10009",
             "10010",
-            "20012",
             "20017",
         }
         return (not self._has_expected_registers(param_values)) or any(
@@ -733,7 +739,6 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             "10008",
             "10009",
             "10010",
-            "20012",
             "20017",
             "538976598",
             "20001",

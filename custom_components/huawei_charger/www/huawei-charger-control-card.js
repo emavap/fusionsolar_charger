@@ -620,11 +620,15 @@ class HuaweiChargerControlCard extends HTMLElement {
   }
 }
 
-customElements.define('huawei-charger-control-card', HuaweiChargerControlCard);
+if (!customElements.get('huawei-charger-control-card')) {
+  customElements.define('huawei-charger-control-card', HuaweiChargerControlCard);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'huawei-charger-control-card',
-  name: 'Huawei Charger Control Card',
-  description: 'A custom card to control Huawei charger power limits with presets'
-});
+if (!window.customCards.some((card) => card.type === 'huawei-charger-control-card')) {
+  window.customCards.push({
+    type: 'huawei-charger-control-card',
+    name: 'Huawei Charger Control Card',
+    description: 'A custom card to control Huawei charger power limits with presets'
+  });
+}

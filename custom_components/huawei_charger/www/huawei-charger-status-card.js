@@ -406,11 +406,15 @@ class HuaweiChargerStatusCard extends HTMLElement {
   }
 }
 
-customElements.define('huawei-charger-status-card', HuaweiChargerStatusCard);
+if (!customElements.get('huawei-charger-status-card')) {
+  customElements.define('huawei-charger-status-card', HuaweiChargerStatusCard);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'huawei-charger-status-card',
-  name: 'Huawei Charger Status Card',
-  description: 'A custom card to display Huawei charger status and power information'
-});
+if (!window.customCards.some((card) => card.type === 'huawei-charger-status-card')) {
+  window.customCards.push({
+    type: 'huawei-charger-status-card',
+    name: 'Huawei Charger Status Card',
+    description: 'A custom card to display Huawei charger status and power information'
+  });
+}

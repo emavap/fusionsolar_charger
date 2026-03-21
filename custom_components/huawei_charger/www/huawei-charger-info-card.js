@@ -512,11 +512,15 @@ class HuaweiChargerInfoCard extends HTMLElement {
   }
 }
 
-customElements.define('huawei-charger-info-card', HuaweiChargerInfoCard);
+if (!customElements.get('huawei-charger-info-card')) {
+  customElements.define('huawei-charger-info-card', HuaweiChargerInfoCard);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'huawei-charger-info-card',
-  name: 'Huawei Charger Info Card',
-  description: 'A custom card to display device information and diagnostics'
-});
+if (!window.customCards.some((card) => card.type === 'huawei-charger-info-card')) {
+  window.customCards.push({
+    type: 'huawei-charger-info-card',
+    name: 'Huawei Charger Info Card',
+    description: 'A custom card to display device information and diagnostics'
+  });
+}

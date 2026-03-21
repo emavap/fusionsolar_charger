@@ -53,7 +53,10 @@ async def register_custom_cards(hass: HomeAssistant) -> None:
     component_dir = os.path.dirname(__file__)
     source_www_dir = os.path.join(component_dir, "www")
     ha_www_dir = hass.config.path("www")
-    target_dir = os.path.join(ha_www_dir, "community", "huawei_charger")
+    target_dirs = [
+        os.path.join(ha_www_dir, "community", "huawei_charger"),
+        os.path.join(ha_www_dir, "community", "huawei-charger"),
+    ]
 
     domain_data = hass.data.setdefault(DOMAIN, {})
     if domain_data.get("_cards_registered"):
@@ -61,15 +64,17 @@ async def register_custom_cards(hass: HomeAssistant) -> None:
 
     def _copy_cards():
         """Copy card files on a worker thread to avoid blocking the event loop."""
-        os.makedirs(target_dir, exist_ok=True)
         copied = []
         missing = []
 
+        for target_dir in target_dirs:
+            os.makedirs(target_dir, exist_ok=True)
+
         for card_file in CUSTOM_CARDS:
             source_path = os.path.join(source_www_dir, card_file)
-            target_path = os.path.join(target_dir, card_file)
             if os.path.exists(source_path):
-                shutil.copy2(source_path, target_path)
+                for target_dir in target_dirs:
+                    shutil.copy2(source_path, os.path.join(target_dir, card_file))
                 copied.append(card_file)
             else:
                 missing.append(card_file)

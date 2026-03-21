@@ -452,11 +452,15 @@ class HuaweiChargerEnergyCard extends HTMLElement {
   }
 }
 
-customElements.define('huawei-charger-energy-card', HuaweiChargerEnergyCard);
+if (!customElements.get('huawei-charger-energy-card')) {
+  customElements.define('huawei-charger-energy-card', HuaweiChargerEnergyCard);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'huawei-charger-energy-card',
-  name: 'Huawei Charger Energy Card',
-  description: 'A custom card to monitor energy consumption and charging sessions'
-});
+if (!window.customCards.some((card) => card.type === 'huawei-charger-energy-card')) {
+  window.customCards.push({
+    type: 'huawei-charger-energy-card',
+    name: 'Huawei Charger Energy Card',
+    description: 'A custom card to monitor energy consumption and charging sessions'
+  });
+}

@@ -34,6 +34,12 @@ Initial setup fields:
 | Verify SSL certificates | Enable TLS certificate verification |
 | Enable detailed Huawei logging | Logs sanitized Huawei request and response details for troubleshooting |
 
+Common FusionSolar host values:
+
+- Older shared host: `intl.fusionsolar.huawei.com`
+- Newer tenant hosts: `uni005eu5.fusionsolar.huawei.com` and other `uni...fusionsolar.huawei.com` variants
+- You can paste either the hostname itself or the full browser URL from FusionSolar; the integration will extract the host automatically
+
 After setup:
 
 - Use `Options` to change the poll interval, SSL verification, or detailed logging.

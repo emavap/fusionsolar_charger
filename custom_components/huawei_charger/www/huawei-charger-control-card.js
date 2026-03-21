@@ -97,9 +97,12 @@ class HuaweiChargerControlCard extends HTMLElement {
     return null;
   }
 
-  _deriveCableStatus(currentPowerEntity, pluggedInEntity) {
+  _deriveCableStatus(currentPowerEntity, deviceStatusEntity, chargeStoreEntity, pluggedInEntity) {
     const currentPower = parseFloat(currentPowerEntity?.state);
+    const deviceStatusValue = this._normalizeStateValue(deviceStatusEntity?.state);
+    const chargeStoreValue = this._normalizeStateValue(chargeStoreEntity?.state);
     const pluggedInValue = this._normalizeStateValue(pluggedInEntity?.state);
+    const statusValue = deviceStatusValue || chargeStoreValue || pluggedInValue;
 
     if (Number.isFinite(currentPower) && currentPower > 0.1) {
       return {
@@ -109,7 +112,7 @@ class HuaweiChargerControlCard extends HTMLElement {
       };
     }
 
-    if (['2', 'ready'].includes(pluggedInValue)) {
+    if (['2', 'ready'].includes(statusValue)) {
       return {
         status: 'Ready',
         icon: 'mdi:power-plug',
@@ -118,10 +121,10 @@ class HuaweiChargerControlCard extends HTMLElement {
     }
 
     if (
-      ['1', 'connected'].includes(pluggedInValue)
+      ['1', 'connected'].includes(statusValue)
     ) {
       return {
-        status: 'Idle',
+        status: 'Connected',
         icon: 'mdi:power-plug',
         color: 'connected'
       };
@@ -143,8 +146,8 @@ class HuaweiChargerControlCard extends HTMLElement {
         id.includes('dynamic_power_limit') || 
         id.includes('fixed_max_charging_power') || 
         id.includes('fixed_max_power') ||
-        id.includes('current_power') ||
-        id.includes('charging_power') ||
+        id.includes('device_status') ||
+        id.includes('charge_store') ||
         id.includes('plugged_in') ||
         id.includes('plugged')
       )
@@ -195,10 +198,18 @@ class HuaweiChargerControlCard extends HTMLElement {
       ['fixed_max_charging_power', 'fixed_max_power'],
       this.config.fixed_power_entity
     );
-    const currentPowerEntity = this._findEntityBySuffixes(
+    const currentPowerEntity = this.config.current_power_entity
+      ? this._findEntityBySuffixes(huaweiEntities, [], this.config.current_power_entity)
+      : null;
+    const deviceStatusEntity = this._findEntityBySuffixes(
       huaweiEntities,
-      ['current_power', 'charging_power'],
-      this.config.current_power_entity
+      ['device_status'],
+      this.config.device_status_entity
+    );
+    const chargeStoreEntity = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['charge_store'],
+      this.config.charge_store_entity
     );
     const pluggedInEntity = this._findEntityBySuffixes(
       huaweiEntities,
@@ -223,9 +234,11 @@ class HuaweiChargerControlCard extends HTMLElement {
     const hasDynamic = this._isEntityAvailable(dynamicEntity);
     const hasFixed = this._isEntityAvailable(fixedEntity);
     const hasCurrentPower = this._isEntityAvailable(currentPowerEntity);
+    const hasDeviceStatus = this._isEntityAvailable(deviceStatusEntity);
+    const hasChargeStore = this._isEntityAvailable(chargeStoreEntity);
     const hasPluggedState = this._isEntityAvailable(pluggedInEntity);
 
-    if (!hasDynamic && !hasFixed && !hasCurrentPower && !hasPluggedState) {
+    if (!hasDynamic && !hasFixed && !hasCurrentPower && !hasDeviceStatus && !hasChargeStore && !hasPluggedState) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
@@ -249,8 +262,8 @@ class HuaweiChargerControlCard extends HTMLElement {
       ? (this._pendingValue !== null ? this._pendingValue : toNumber(dynamicEntity.state, 0))
       : null;
     const fixedValue = hasFixed ? toNumber(fixedEntity.state, 0) : null;
-    const cableState = (hasCurrentPower || hasPluggedState)
-      ? this._deriveCableStatus(currentPowerEntity, pluggedInEntity)
+    const cableState = (hasCurrentPower || hasDeviceStatus || hasChargeStore || hasPluggedState)
+      ? this._deriveCableStatus(currentPowerEntity, deviceStatusEntity, chargeStoreEntity, pluggedInEntity)
       : null;
     const minValue = hasDynamic ? toNumber(dynamicEntity.attributes.min, 1.6) : null;
     const maxValue = hasDynamic ? toNumber(dynamicEntity.attributes.max, 7.4) : null;

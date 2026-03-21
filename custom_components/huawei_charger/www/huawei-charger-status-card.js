@@ -57,8 +57,11 @@ class HuaweiChargerStatusCard extends HTMLElement {
     return null;
   }
 
-  _deriveConnectionState(pluggedIn, power) {
+  _deriveConnectionState(deviceStatus, chargeStore, pluggedIn, power) {
+    const deviceStatusState = this._normalizeStateValue(deviceStatus?.state);
+    const chargeStoreState = this._normalizeStateValue(chargeStore?.state);
     const pluggedState = this._normalizeStateValue(pluggedIn?.state);
+    const statusState = deviceStatusState || chargeStoreState || pluggedState;
 
     if (
       ['3', 'charging'].includes(pluggedState) ||
@@ -73,12 +76,12 @@ class HuaweiChargerStatusCard extends HTMLElement {
       };
     }
 
-    if (['1', '2', 'connected', 'ready'].includes(pluggedState)) {
+    if (['1', '2', 'connected', 'ready'].includes(statusState)) {
       return {
         isCharging: false,
-        statusText: pluggedState === '2' || pluggedState === 'ready' ? 'Ready' : 'Idle',
+        statusText: statusState === '2' || statusState === 'ready' ? 'Ready' : 'Connected',
         connectionText: 'Idle',
-        statusColor: pluggedState === '2' || pluggedState === 'ready' ? '#FF9800' : '#2196F3',
+        statusColor: statusState === '2' || statusState === 'ready' ? '#FF9800' : '#2196F3',
         statusIcon: 'mdi:power-plug'
       };
     }
@@ -98,11 +101,11 @@ class HuaweiChargerStatusCard extends HTMLElement {
     // Get current status monitoring entities
     const huaweiEntities = Object.keys(hass.states).filter(id => 
       id.includes('huawei_charger') && (
-        id.includes('current_power') ||
-        id.includes('charging_power') ||
         id.includes('session_energy') ||
         id.includes('total_energy_charged') ||
         id.includes('total_energy') ||
+        id.includes('device_status') ||
+        id.includes('charge_store') ||
         id.includes('plugged_in') ||
         id.includes('plugged') ||
         id.includes('dynamic_power_limit')
@@ -134,15 +137,23 @@ class HuaweiChargerStatusCard extends HTMLElement {
       id.includes('huawei_charger')
     );
     
-    const currentPower = this._findEntityBySuffixes(
-      huaweiEntities,
-      ['current_power', 'charging_power'],
-      this.config.current_power_entity
-    );
+    const currentPower = this.config.current_power_entity
+      ? this._findEntityBySuffixes(huaweiEntities, [], this.config.current_power_entity)
+      : null;
     const sessionEnergy = this._findEntityBySuffixes(
       huaweiEntities,
       ['session_energy', 'total_energy_charged', 'total_energy'],
       this.config.session_energy_entity
+    );
+    const deviceStatus = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['device_status'],
+      this.config.device_status_entity
+    );
+    const chargeStore = this._findEntityBySuffixes(
+      huaweiEntities,
+      ['charge_store'],
+      this.config.charge_store_entity
     );
     const pluggedIn = this._findEntityBySuffixes(
       huaweiEntities,
@@ -185,15 +196,17 @@ class HuaweiChargerStatusCard extends HTMLElement {
     const hasCurrentPower = this._isEntityAvailable(currentPower);
     const hasSessionEnergy = this._isEntityAvailable(sessionEnergy);
     const hasPowerLimit = this._isEntityAvailable(dynamicPowerLimit);
+    const hasDeviceStatus = this._isEntityAvailable(deviceStatus);
+    const hasChargeStore = this._isEntityAvailable(chargeStore);
     const hasPluggedState = this._isEntityAvailable(pluggedIn);
 
-    if (!hasCurrentPower && !hasSessionEnergy && !hasPowerLimit && !hasPluggedState) {
+    if (!hasCurrentPower && !hasSessionEnergy && !hasPowerLimit && !hasDeviceStatus && !hasChargeStore && !hasPluggedState) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
             <div class="error">
               <h3>No compatible charger status entities available</h3>
-              <p>The card will render automatically when Huawei exposes current power, total energy, or limit data.</p>
+              <p>The card will render automatically when Huawei exposes charger status, energy, or limit data.</p>
             </div>
           </div>
         </ha-card>
@@ -204,7 +217,7 @@ class HuaweiChargerStatusCard extends HTMLElement {
     const power = hasCurrentPower ? (parseFloat(currentPower.state) || 0) : null;
     const rawPowerLimit = hasPowerLimit ? parseFloat(dynamicPowerLimit.state) : NaN;
     const powerLimit = Number.isFinite(rawPowerLimit) && rawPowerLimit > 0 ? rawPowerLimit : null;
-    const connection = this._deriveConnectionState(pluggedIn, power ?? 0);
+    const connection = this._deriveConnectionState(deviceStatus, chargeStore, pluggedIn, power ?? 0);
     const isCharging = connection.isCharging;
     const statusText = connection.statusText;
     const statusColor = connection.statusColor;
@@ -235,7 +248,7 @@ class HuaweiChargerStatusCard extends HTMLElement {
       `);
     }
 
-    if (hasCurrentPower || hasPluggedState) {
+    if (hasCurrentPower || hasDeviceStatus || hasChargeStore || hasPluggedState) {
       infoItems.push(`
         <div class="info-item">
           <div class="info-label">Status</div>

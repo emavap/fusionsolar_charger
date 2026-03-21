@@ -57,12 +57,12 @@ def test_power_sensor_converts_watts_to_kw():
     assert sensor.native_value == pytest.approx(7.4)
 
 
-def test_current_power_sensor_uses_power_value():
-    coordinator = DummyCoordinator({"current_power": 3.7})
-    sensor = HuaweiChargerSensor(coordinator, "current_power")
+def test_device_status_sensor_uses_string_value():
+    coordinator = DummyCoordinator({"device_status": "Connected"})
+    sensor = HuaweiChargerSensor(coordinator, "device_status")
 
-    assert sensor.name == "Current Power"
-    assert sensor.native_value == pytest.approx(3.7)
+    assert sensor.name == "Device Status"
+    assert sensor.native_value == "Connected"
 
 
 def test_voltage_sensor_rounds_to_one_decimal():
@@ -221,7 +221,7 @@ async def test_binary_sensor_setup_removes_legacy_auth_sensor(monkeypatch):
 def test_active_sensor_registers_only_returns_present_registers():
     main, diagnostic = _active_sensor_registers(
         {
-            "current_power": 3.7,
+            "device_status": "Connected",
             "10008": 1.2,
             "20012": 40,
             "10007": "model",
@@ -234,28 +234,28 @@ def test_active_sensor_registers_only_returns_present_registers():
         },
     )
 
-    assert main == ["current_power", "10008"]
+    assert main == ["device_status", "10008"]
     assert diagnostic == ["10007", "20012", "99999", "33595393"]
 
 
 def test_active_sensor_registers_preserves_existing_ids_and_skips_sensitive():
     main, diagnostic = _active_sensor_registers(
-        {"current_power": 3.7},
+        {"device_status": "Connected"},
         {"20034": "secret"},
         existing_register_ids={"20012", "20034", "10007"},
     )
 
-    assert main == ["current_power"]
+    assert main == ["device_status"]
     assert diagnostic == ["10007", "20012"]
 
 
 def test_active_sensor_registers_does_not_keep_missing_registry_ids_by_default():
     main, diagnostic = _active_sensor_registers(
-        {"current_power": 3.7},
+        {"device_status": "Connected"},
         None,
     )
 
-    assert main == ["current_power"]
+    assert main == ["device_status"]
     assert diagnostic == []
 
 

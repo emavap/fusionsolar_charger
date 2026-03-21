@@ -70,8 +70,8 @@ class HuaweiChargerEnergyCard extends HTMLElement {
         id.includes('session_energy') || 
         id.includes('session_duration') ||
         id.includes('total_energy') ||
-        id.includes('current_power') ||
-        id.includes('charging_power')
+        id.includes('rated_charging_power') ||
+        id.includes('dynamic_power_limit')
       )
     );
     
@@ -115,11 +115,9 @@ class HuaweiChargerEnergyCard extends HTMLElement {
       ['total_energy_charged', 'total_energy'],
       this.config.total_energy_entity
     );
-    const currentPowerEntity = this._findEntityBySuffixes(
-      huaweiEntities,
-      ['current_power', 'charging_power'],
-      this.config.current_power_entity
-    );
+    const currentPowerEntity = this.config.current_power_entity
+      ? this._findEntityBySuffixes(huaweiEntities, [], this.config.current_power_entity)
+      : null;
     const dynamicLimitEntity = this._findEntityBySuffixes(
       huaweiEntities,
       ['dynamic_power_limit'],

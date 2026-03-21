@@ -19,7 +19,8 @@ SENSITIVE_REGISTERS = ["20034"]
 
 # Register name mapping
 REGISTER_NAME_MAP = {
-    "current_power": "Current Power",
+    "device_status": "Device Status",
+    "charge_store": "Charge Store Status",
     REG_FIXED_MAX_POWER: "Fixed Max Charging Power",
     REG_DYNAMIC_POWER_LIMIT: "Dynamic Power Limit",
     "10001": "Software Version",

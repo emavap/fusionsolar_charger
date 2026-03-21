@@ -26,14 +26,13 @@ DEBUG_SENSOR_TYPES = {
 
 # Main sensors - visible by default (core charging information)
 MAIN_SENSOR_REGISTERS = [
-    "current_power",  # Station current power
+    "device_status",  # Charger status from wallbox-info
     "10003",      # Rated Charging Power
     "10008",      # Total Energy Charged
 ]
 
 # Register configurations with units and device classes
 REGISTER_CONFIG = {
-    "current_power": {"unit": UnitOfPower.KILO_WATT, "device_class": SensorDeviceClass.POWER, "state_class": SensorStateClass.MEASUREMENT},
     # Energy related
     "10008": {"unit": UnitOfEnergy.KILO_WATT_HOUR, "device_class": SensorDeviceClass.ENERGY, "state_class": SensorStateClass.TOTAL_INCREASING},
     # Current related
@@ -174,7 +173,7 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
         # Convert values if needed
         try:
             # For power values, ensure they're in kW
-            if self._reg_id in ["current_power", "10003", "538976569", "538976570"] and isinstance(raw_value, (int, float)):
+            if self._reg_id in ["10003", "538976569", "538976570"] and isinstance(raw_value, (int, float)):
                 # Convert W to kW if the value seems to be in watts
                 if raw_value > 100:  # Assume values > 100 are in watts
                     return raw_value / 1000

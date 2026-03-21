@@ -44,7 +44,7 @@ async def _register_lovelace_resources(hass: HomeAssistant, card_urls: list[str]
                 CONF_RESOURCE_TYPE_WS: "module",
             }
         )
-        _LOGGER.warning("Registered Lovelace resource: %s", card_url)
+        _LOGGER.info("Registered Lovelace resource: %s", card_url)
 
 async def register_custom_cards(hass: HomeAssistant) -> None:
     """Register custom Lovelace cards by copying to www directory."""
@@ -86,15 +86,15 @@ async def register_custom_cards(hass: HomeAssistant) -> None:
         for card_file in copied_cards:
             card_url = f"/local/community/huawei_charger/{card_file}"
             add_extra_js_url(hass, card_url)
-            _LOGGER.warning("Registered custom card: %s", card_file)
+            _LOGGER.info("Registered custom card: %s", card_file)
 
         await _register_lovelace_resources(hass, card_urls)
 
         for missing in missing_cards:
-            _LOGGER.warning("Custom card file not found: %s", os.path.join(source_www_dir, missing))
+            _LOGGER.info("Custom card file not found: %s", os.path.join(source_www_dir, missing))
 
         domain_data["_cards_registered"] = True
-        _LOGGER.warning("Huawei Charger custom card registration completed")
+        _LOGGER.info("Huawei Charger custom card registration completed")
 
     except Exception as err:
         _LOGGER.error("Failed to register custom cards: %s", err)

@@ -271,7 +271,7 @@ def test_authenticate_retries_default_host_when_tenant_host_has_no_token(monkeyp
     assert station_calls == [True]
 
 
-def test_fetch_station_dn_stores_current_power():
+def test_fetch_station_dn_stores_charge_store():
     coordinator = build_coordinator()
     coordinator._request_post = lambda *args, **kwargs: DummyResponse(
         {
@@ -279,7 +279,7 @@ def test_fetch_station_dn_stores_current_power():
                 "list": [
                     {
                         "dn": "NE=149170766",
-                        "currentPower": "3.7",
+                        "chargeStore": "Connected",
                     }
                 ]
             }
@@ -289,7 +289,7 @@ def test_fetch_station_dn_stores_current_power():
     coordinator.fetch_station_dn()
 
     assert coordinator.dn_id == "NE=149170766"
-    assert coordinator.station_values == {"current_power": 3.7}
+    assert coordinator.station_values == {"charge_store": "Connected"}
 
 
 def test_fetch_wallbox_info_falls_back_to_realtime_data():

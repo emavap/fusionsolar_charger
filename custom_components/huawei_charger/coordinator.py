@@ -63,7 +63,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         self.verify_ssl = entry.options.get(CONF_VERIFY_SSL, entry.data.get(CONF_VERIFY_SSL, False))
         self.enable_logging = entry.options.get(
             CONF_ENABLE_LOGGING,
-            entry.data.get(CONF_ENABLE_LOGGING, True),
+            entry.data.get(CONF_ENABLE_LOGGING, DEFAULT_ENABLE_LOGGING),
         )
         self.request_timeout = DEFAULT_REQUEST_TIMEOUT
 
@@ -219,10 +219,10 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         
         station = data["data"]["list"][0]
         self.dn_id = station["dn"]
-        current_power = station.get("currentPower")
         self.station_values = {}
-        if current_power is not None:
-            self.station_values["current_power"] = self._convert_register_value(current_power)
+        charge_store = station.get("chargeStore")
+        if charge_store is not None:
+            self.station_values["charge_store"] = str(charge_store)
 
     def fetch_wallbox_info(self):
         url = f"https://{self.region_ip}:32800/rest/neteco/web/config/device/v1/device-list"
@@ -253,6 +253,9 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         self.wallbox_dn_id = wallbox["dnId"]
         self.fetch_wallbox_config_probe()
         self.param_values = self._normalize_param_values(wallbox.get("paramValues", {}))
+        device_status = wallbox.get("deviceStatus")
+        if device_status is not None:
+            self.param_values["device_status"] = str(device_status)
         if self._should_fetch_realtime_data(self.param_values):
             realtime_values = self.fetch_wallbox_realtime_data()
             if realtime_values:

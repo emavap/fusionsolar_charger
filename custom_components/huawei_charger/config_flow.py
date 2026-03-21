@@ -376,7 +376,7 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
         current_host = entry.data.get(CONF_HOST, DEFAULT_FUSIONSOLAR_HOST)
         current_enable_logging = entry.options.get(
             CONF_ENABLE_LOGGING,
-            entry.data.get(CONF_ENABLE_LOGGING, True),
+            entry.data.get(CONF_ENABLE_LOGGING, DEFAULT_ENABLE_LOGGING),
         )
 
         return vol.Schema(

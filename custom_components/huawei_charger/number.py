@@ -50,6 +50,18 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
         max_power = 7.4
         
         try:
+            signal_details = getattr(self.coordinator, "config_signal_details", {}).get(self._reg_id, {})
+            signal_min = signal_details.get("min")
+            signal_max = signal_details.get("max")
+            if signal_min is not None:
+                parsed_min = float(signal_min)
+                if parsed_min > 0:
+                    min_power = parsed_min
+            if signal_max is not None:
+                parsed_max = float(signal_max)
+                if parsed_max > min_power:
+                    max_power = parsed_max
+
             # Try to get limits from device registers
             if self.coordinator.data:
                 # Min power from register 538976569
@@ -68,22 +80,31 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
                             break
                             
         except (ValueError, TypeError) as err:
-            _LOGGER.warning("Could not parse power limits from device, using defaults: %s", err)
+            self._log_warning("Could not parse power limits from device, using defaults: %s", err)
             
         self._attr_native_min_value = min_power
         self._attr_native_max_value = max_power
-        _LOGGER.info("Set power limits for %s: min=%.1f kW, max=%.1f kW", 
-                    self._attr_name, min_power, max_power)
+        self._log_warning(
+            "Set power limits for %s: min=%.1f kW, max=%.1f kW",
+            self._attr_name,
+            min_power,
+            max_power,
+        )
+
+    def _handle_coordinator_update(self):
+        self._set_power_limits()
+        self._attr_native_step = 0.1 if self._attr_native_max_value <= 3.7 else 0.2
+        super()._handle_coordinator_update()
 
     @property
     def native_value(self):
-        raw_value = self.coordinator.data.get(self._reg_id)
+        raw_value = self.coordinator.get_register_value(self._reg_id)
         if raw_value is None:
             return None
         try:
             return float(raw_value)
         except (ValueError, TypeError):
-            _LOGGER.warning("Could not convert value for register %s: %s", self._reg_id, raw_value)
+            self._log_warning("Could not convert value for register %s: %s", self._reg_id, raw_value)
             return 0.0
 
     async def async_set_native_value(self, value: float):
@@ -94,14 +115,17 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
         
         # Skip if value hasn't changed (avoid redundant writes)
         if self._last_set_value is not None and abs(value - self._last_set_value) < 0.01:
-            _LOGGER.debug("Skipping redundant write for register %s: value unchanged (%.2f)", 
-                         self._reg_id, value)
+            self._log_warning(
+                "Skipping redundant write for register %s: value unchanged (%.2f)",
+                self._reg_id,
+                value,
+            )
             return
         
         # Cancel any pending write task
         if self._pending_task and not self._pending_task.done():
             self._pending_task.cancel()
-            _LOGGER.debug("Cancelled pending write task for register %s", self._reg_id)
+            self._log_warning("Cancelled pending write task for register %s", self._reg_id)
         
         # Store the pending value
         self._pending_value = value
@@ -121,8 +145,11 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
             
             if time_since_last_write < self._min_write_interval:
                 remaining_wait = self._min_write_interval - time_since_last_write
-                _LOGGER.info("Rate limiting: waiting %.1f seconds before writing register %s", 
-                           remaining_wait, self._reg_id)
+                self._log_warning(
+                    "Rate limiting: waiting %.1f seconds before writing register %s",
+                    remaining_wait,
+                    self._reg_id,
+                )
                 await asyncio.sleep(remaining_wait)
             
             # Perform the actual write
@@ -130,7 +157,7 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
             if value is None:
                 return
                 
-            _LOGGER.info("Writing debounced value %.2f to register %s", value, self._reg_id)
+            self._log_warning("Writing debounced value %.2f to register %s", value, self._reg_id)
             success = await self.hass.async_add_executor_job(
                 self.coordinator.set_config_value, self._reg_id, value
             )
@@ -144,16 +171,23 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
                 await asyncio.sleep(10)
                 await self.coordinator.async_request_refresh()
                 
-                _LOGGER.info("Successfully set register %s to %.2f with EEPROM protection", 
-                           self._reg_id, value)
+                self._log_warning(
+                    "Successfully set register %s to %.2f with EEPROM protection",
+                    self._reg_id,
+                    value,
+                )
             else:
                 _LOGGER.error("Failed to set value %.2f for register %s", value, self._reg_id)
                 
         except asyncio.CancelledError:
-            _LOGGER.debug("Debounced write cancelled for register %s", self._reg_id)
+            self._log_warning("Debounced write cancelled for register %s", self._reg_id)
         except Exception as err:
             _LOGGER.error("Error in debounced write for register %s: %s", self._reg_id, err)
 
     @property
     def available(self):
-        return self.coordinator.last_update_success
+        return self.coordinator.get_register_value(self._reg_id) is not None
+
+    def _log_warning(self, message, *args):
+        if getattr(self.coordinator, "enable_logging", True):
+            _LOGGER.warning(message, *args)

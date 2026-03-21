@@ -8,7 +8,7 @@ import logging
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "number"]
+PLATFORMS = ["sensor", "number", "binary_sensor"]
 
 # Custom cards to register
 CUSTOM_CARDS = [
@@ -54,13 +54,13 @@ async def register_custom_cards(hass: HomeAssistant) -> None:
         for card_file in copied_cards:
             card_url = f"/local/community/huawei_charger/{card_file}"
             add_extra_js_url(hass, card_url)
-            _LOGGER.info("Registered custom card: %s", card_file)
+            _LOGGER.warning("Registered custom card: %s", card_file)
 
         for missing in missing_cards:
             _LOGGER.warning("Custom card file not found: %s", os.path.join(source_www_dir, missing))
 
         domain_data["_cards_registered"] = True
-        _LOGGER.info("Huawei Charger custom card registration completed")
+        _LOGGER.warning("Huawei Charger custom card registration completed")
 
     except Exception as err:
         _LOGGER.error("Failed to register custom cards: %s", err)
@@ -75,6 +75,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = HuaweiChargerCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -85,3 +86,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
+
+
+async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the config entry when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)

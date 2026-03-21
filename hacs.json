@@ -8,5 +8,5 @@
   "persistent_directory": "custom_components/huawei_charger",
   "render_readme": true,
   "zip_release": false,
-  "source": "master"
+  "source": "main"
 }

@@ -1,14 +1,20 @@
+from homeassistant.const import CONF_HOST
+
 DOMAIN = "huawei_charger"
 CONF_INTERVAL = "update_interval"
 CONF_VERIFY_SSL = "verify_ssl"
+CONF_ENABLE_LOGGING = "enable_logging"
 
 DEFAULT_REQUEST_TIMEOUT = 15
 DEFAULT_LOCALE = "de_DE"
 DEFAULT_TIMEZONE_OFFSET = 120  # +2:00 fallback
+DEFAULT_FUSIONSOLAR_HOST = "intl.fusionsolar.huawei.com"
+DEFAULT_ENABLE_LOGGING = False
 
 # Writable registers
 REG_FIXED_MAX_POWER = "538976598"
 REG_DYNAMIC_POWER_LIMIT = "20001"
+WRITABLE_REGISTERS = [REG_FIXED_MAX_POWER, REG_DYNAMIC_POWER_LIMIT]
 
 # Register name mapping
 REGISTER_NAME_MAP = {

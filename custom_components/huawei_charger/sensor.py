@@ -1,4 +1,5 @@
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.const import (
@@ -10,6 +11,17 @@ import logging
 from .const import DOMAIN, REGISTER_NAME_MAP
 
 _LOGGER = logging.getLogger(__name__)
+
+DEBUG_SENSOR_TYPES = {
+    "update": {
+        "name": "Debug Update Status",
+        "key": "last_update_status",
+    },
+    "write": {
+        "name": "Debug Write Status",
+        "key": "last_write_status",
+    },
+}
 
 # Main sensors - visible by default (core charging information)
 MAIN_SENSOR_REGISTERS = [
@@ -121,18 +133,46 @@ REGISTER_CONFIG = {
     "538976570": {"unit": UnitOfPower.KILO_WATT, "device_class": SensorDeviceClass.POWER},
 }
 
+def _active_sensor_registers(data):
+    active_main = [reg_id for reg_id in MAIN_SENSOR_REGISTERS if reg_id in data]
+    active_diagnostic = [reg_id for reg_id in DIAGNOSTIC_SENSOR_REGISTERS if reg_id in data]
+    return active_main, active_diagnostic
+
+
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     entities = []
-    
-    # Add main sensors (visible by default)
-    for reg_id in MAIN_SENSOR_REGISTERS:
+
+    active_main, active_diagnostic = _active_sensor_registers(coordinator.data)
+
+    for reg_id in active_main:
         entities.append(HuaweiChargerSensor(coordinator, reg_id, is_diagnostic=False))
-    
-    # Add diagnostic sensors (hidden by default)
-    for reg_id in DIAGNOSTIC_SENSOR_REGISTERS:
+
+    for reg_id in active_diagnostic:
         entities.append(HuaweiChargerSensor(coordinator, reg_id, is_diagnostic=True))
-    
+
+    for debug_type in DEBUG_SENSOR_TYPES:
+        entities.append(HuaweiChargerDebugSensor(coordinator, debug_type))
+
+    registry = er.async_get(hass)
+    active_unique_ids = {
+        f"{entry.entry_id}_sensor_{reg_id}"
+        for reg_id in active_main + active_diagnostic
+    }.union(
+        {
+            f"{entry.entry_id}_debug_{debug_type}"
+            for debug_type in DEBUG_SENSOR_TYPES
+        }
+    )
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            registry_entry.domain == "sensor"
+            and registry_entry.unique_id
+            and registry_entry.unique_id.startswith(f"{entry.entry_id}_")
+            and registry_entry.unique_id not in active_unique_ids
+        ):
+            registry.async_remove(registry_entry.entity_id)
+
     async_add_entities(entities)
 
 class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
@@ -196,11 +236,16 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
                         if offset_value is not None:
                             try:
                                 offset = float(offset_value)
-                                temp_value = temp_value - offset  # Apply offset correction
-                                _LOGGER.debug("Temperature %s: raw=%s, offset=%s, corrected=%s", 
-                                            self._reg_id, raw_value, offset, temp_value)
+                                temp_value = temp_value - offset  # Apply temperature offset correction
+                                self._log_warning(
+                                    "Temperature %s: raw=%s, offset=%s, corrected=%s",
+                                    self._reg_id,
+                                    raw_value,
+                                    offset,
+                                    temp_value,
+                                )
                             except (ValueError, TypeError):
-                                _LOGGER.warning("Invalid temperature offset value: %s", offset_value)
+                                self._log_warning("Invalid temperature offset value: %s", offset_value)
                     
                     return round(temp_value, 1)
                     
@@ -261,7 +306,7 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
             return str_value
             
         except (ValueError, TypeError):
-            _LOGGER.warning("Could not convert value for register %s: %s", self._reg_id, raw_value)
+            self._log_warning("Could not convert value for register %s: %s", self._reg_id, raw_value)
             return str(raw_value)
 
     @property
@@ -270,11 +315,70 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def available(self):
-        return self.coordinator.last_update_success and self.coordinator.data.get(self._reg_id) is not None
+        return self.coordinator.data.get(self._reg_id) is not None
 
     @property
     def extra_state_attributes(self):
         return {
             "register_id": self._reg_id,
-            "raw_value": self.coordinator.data.get(self._reg_id)
+            "raw_value": self.coordinator.get_register_value(self._reg_id),
+            "stale": not self.coordinator.last_update_success,
+        }
+
+    def _log_warning(self, message, *args):
+        if getattr(self.coordinator, "enable_logging", True):
+            _LOGGER.warning(message, *args)
+
+
+class HuaweiChargerDebugSensor(CoordinatorEntity, SensorEntity):
+    def __init__(self, coordinator, debug_type):
+        super().__init__(coordinator)
+        self.coordinator = coordinator
+        self._debug_type = debug_type
+        config = DEBUG_SENSOR_TYPES[debug_type]
+        self._state_key = config["key"]
+        self._attr_name = config["name"]
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_debug_{debug_type}"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, coordinator.entry.entry_id)},
+            "name": "Huawei Charger",
+            "manufacturer": "Huawei",
+        }
+
+    @property
+    def native_value(self):
+        return self.coordinator.debug_data.get(self._state_key)
+
+    @property
+    def available(self):
+        return True
+
+    @property
+    def should_poll(self):
+        return False
+
+    @property
+    def extra_state_attributes(self):
+        debug_data = self.coordinator.debug_data
+        if self._debug_type == "update":
+            return {
+                "last_update_error": debug_data.get("last_update_error"),
+                "last_update_at": debug_data.get("last_update_at"),
+                "last_update_duration_ms": debug_data.get("last_update_duration_ms"),
+                "last_update_response_excerpt": debug_data.get("last_update_response_excerpt"),
+                "last_register_count": debug_data.get("last_register_count"),
+                "writable_registers_available": debug_data.get("writable_registers_available"),
+                "missing_writable_registers": debug_data.get("missing_writable_registers"),
+                "available_registers": debug_data.get("available_registers"),
+            }
+
+        return {
+            "last_write_param_id": debug_data.get("last_write_param_id"),
+            "last_write_value": debug_data.get("last_write_value"),
+            "last_write_error": debug_data.get("last_write_error"),
+            "last_write_at": debug_data.get("last_write_at"),
+            "last_write_duration_ms": debug_data.get("last_write_duration_ms"),
+            "last_write_attempts": debug_data.get("last_write_attempts"),
+            "last_write_response_excerpt": debug_data.get("last_write_response_excerpt"),
         }

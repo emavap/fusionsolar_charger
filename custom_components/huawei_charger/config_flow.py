@@ -39,6 +39,22 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     @staticmethod
+    def _coerce_bool(value, default: bool = False) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "on", "yes"}:
+                return True
+            if normalized in {"0", "false", "off", "no", ""}:
+                return False
+        return bool(value)
+
+    @staticmethod
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
         return HuaweiChargerOptionsFlow()
@@ -62,9 +78,13 @@ class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 options = {
                     CONF_INTERVAL: user_input.get(CONF_INTERVAL, DEFAULT_INTERVAL),
-                    CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, False),
-                    CONF_ENABLE_LOGGING: user_input.get(
-                        CONF_ENABLE_LOGGING, DEFAULT_ENABLE_LOGGING
+                    CONF_VERIFY_SSL: self._coerce_bool(
+                        user_input.get(CONF_VERIFY_SSL),
+                        False,
+                    ),
+                    CONF_ENABLE_LOGGING: self._coerce_bool(
+                        user_input.get(CONF_ENABLE_LOGGING),
+                        DEFAULT_ENABLE_LOGGING,
                     ),
                 }
                 entry_data = {
@@ -338,9 +358,13 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
                         CONF_INTERVAL,
                         entry.options.get(CONF_INTERVAL, DEFAULT_INTERVAL),
                     ),
-                    CONF_VERIFY_SSL: bool(user_input.get(CONF_VERIFY_SSL, False)),
-                    CONF_ENABLE_LOGGING: bool(
-                        user_input.get(CONF_ENABLE_LOGGING, False)
+                    CONF_VERIFY_SSL: HuaweiChargerConfigFlow._coerce_bool(
+                        user_input.get(CONF_VERIFY_SSL),
+                        False,
+                    ),
+                    CONF_ENABLE_LOGGING: HuaweiChargerConfigFlow._coerce_bool(
+                        user_input.get(CONF_ENABLE_LOGGING),
+                        False,
                     ),
                 }
                 self.hass.config_entries.async_update_entry(

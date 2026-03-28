@@ -58,6 +58,13 @@ Important entities:
 - `sensor.huawei_charger_debug_write_status`
 - `binary_sensor.huawei_charger_reauthentication_required`
 
+Diagnostic service:
+
+- `huawei_charger.dump_config_signals`
+  - Refreshes the charger config-signal catalog
+  - Logs a `session_control_candidates` section based on signal names/options
+  - Logs the full config-signal catalog returned by Huawei for reverse engineering
+
 ## Logging
 
 Detailed Huawei logging is optional. When enabled, the integration logs sanitized request and response data for:
@@ -67,6 +74,8 @@ Detailed Huawei logging is optional. When enabled, the integration logs sanitize
 - wallbox realtime data
 - config signal reads
 - config signal writes
+
+To inspect potential hidden start/stop fields, call `huawei_charger.dump_config_signals` from Developer Tools > Actions after a successful refresh. The service writes the results to the Home Assistant log and highlights likely session-control signals such as working modes, authorization, scheduling, or enable/disable fields.
 
 Sensitive values such as passwords, tokens, cookies, and CSRF-style values are redacted before logging.
 

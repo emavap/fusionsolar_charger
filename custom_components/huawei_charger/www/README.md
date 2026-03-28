@@ -44,43 +44,21 @@ Device information and diagnostics:
 
 ## Installation
 
-### Step 1: Copy Files
-Copy all `.js` files from this directory to your Home Assistant `www` folder:
-```bash
-# Create the directory if it doesn't exist
-mkdir -p /config/www/community/huawei-charger/
+The integration auto-copies and auto-registers these Lovelace resources during setup. In a normal installation you do not need to manually copy the `.js` files or add dashboard resources yourself.
 
-# Copy the card files
-cp custom_components/huawei_charger/www/*.js /config/www/community/huawei-charger/
-```
+If your Home Assistant instance blocks automatic resource registration, the fallback resource URLs are:
 
-### Step 2: Add Resources to Home Assistant
-Add the cards as resources in your Home Assistant configuration:
-
-**Via UI** (Recommended):
-1. Go to Settings → Dashboards → Resources
-2. Click "Add Resource"
-3. Add each card:
-   - URL: `/local/community/huawei-charger/huawei-charger-status-card.js`
-   - Resource type: JavaScript Module
-   - Repeat for all card files
-
-**Via YAML**:
 ```yaml
-# configuration.yaml or ui-lovelace.yaml
 resources:
-  - url: /local/community/huawei-charger/huawei-charger-status-card.js
+  - url: /local/community/huawei_charger/huawei-charger-status-card.js
     type: module
-  - url: /local/community/huawei-charger/huawei-charger-control-card.js
+  - url: /local/community/huawei_charger/huawei-charger-control-card.js
     type: module
-  - url: /local/community/huawei-charger/huawei-charger-energy-card.js
+  - url: /local/community/huawei_charger/huawei-charger-energy-card.js
     type: module
-  - url: /local/community/huawei-charger/huawei-charger-info-card.js
+  - url: /local/community/huawei_charger/huawei-charger-info-card.js
     type: module
 ```
-
-### Step 3: Restart Home Assistant
-Restart Home Assistant to load the new resources.
 
 ## Usage Examples
 
@@ -93,7 +71,9 @@ type: custom:huawei-charger-status-card
 ### Control Card
 ```yaml
 type: custom:huawei-charger-control-card
-# Uses default entities, no configuration needed
+# Optional but recommended when you have multiple chargers:
+# dynamic_power_entity: number.huawei_charger_dynamic_power_limit
+# current_power_entity: sensor.huawei_charger_current_power
 ```
 
 ### Energy Card with Cost Tracking
@@ -134,13 +114,21 @@ cards:
 ### Status Card
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `entity` | string | **required** | Main entity to track (usually charging status) |
+| `device_status_entity` | string | auto-detected | Explicit charger status entity |
+| `charge_store_entity` | string | auto-detected | Explicit station charge-store entity |
+| `plugged_in_entity` | string | auto-detected | Explicit plugged/connected entity |
+| `dynamic_power_entity` | string | auto-detected | Explicit power-limit entity |
+| `current_power_entity` | string | optional | Manual override for a separate live power entity, if you have one |
 
 ### Control Card
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `dynamic_power_entity` | string | `number.huawei_charger_dynamic_power_limit` | Dynamic power limit entity |
-| `fixed_power_entity` | string | `number.huawei_charger_fixed_max_charging_power` | Fixed power limit entity |
+| `dynamic_power_entity` | string | auto-detected | Dynamic power limit entity |
+| `fixed_power_entity` | string | auto-detected | Fixed power limit entity |
+| `current_power_entity` | string | optional | Manual override for a separate live power entity, if you have one |
+| `device_status_entity` | string | auto-detected | Explicit charger status entity |
+| `charge_store_entity` | string | auto-detected | Explicit station charge-store entity |
+| `plugged_in_entity` | string | auto-detected | Explicit plugged/connected entity |
 
 ### Energy Card
 | Option | Type | Default | Description |

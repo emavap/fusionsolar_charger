@@ -11,6 +11,7 @@ import os
 import logging
 
 from .const import DOMAIN
+from .services import async_register_services, async_unregister_services
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "number", "binary_sensor"]
@@ -110,6 +111,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Register custom cards automatically
     await register_custom_cards(hass)
+    async_register_services(hass)
 
     coordinator = HuaweiChargerCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
@@ -124,6 +126,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+        if not any(not str(key).startswith("_") for key in hass.data[DOMAIN]):
+            async_unregister_services(hass)
     return unload_ok
 
 

@@ -128,3 +128,33 @@ def test_number_stays_available_with_cached_value():
     number = HuaweiChargerNumber(coordinator, REG_FIXED_MAX_POWER)
 
     assert number.available is True
+
+
+def test_number_cancels_pending_write_on_remove(monkeypatch):
+    coordinator = DummyCoordinator()
+    coordinator.config_signal_values = {REG_FIXED_MAX_POWER: 2.0}
+    number = HuaweiChargerNumber(coordinator, REG_FIXED_MAX_POWER)
+    number.hass = FakeHass()
+
+    sleep_started = asyncio.Event()
+
+    async def cancellable_sleep(delay):
+        sleep_started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            raise
+
+    monkeypatch.setattr(
+        "custom_components.huawei_charger.number.asyncio.sleep", cancellable_sleep
+    )
+
+    async def run():
+        await number.async_set_native_value(3.0)
+        await sleep_started.wait()
+        await number.async_will_remove_from_hass()
+
+        assert coordinator.set_calls == []
+        assert number._pending_task is None
+
+    asyncio.run(run())

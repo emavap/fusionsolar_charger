@@ -7,9 +7,9 @@ class HuaweiChargerEnergyCard extends HTMLElement {
 
   setConfig(config) {
     this.config = {
-      show_cost: config?.show_cost || false,
-      energy_cost: config?.energy_cost || 0.12, // per kWh
-      currency: config?.currency || '€',
+      show_cost: config?.show_cost ?? false,
+      energy_cost: config?.energy_cost ?? 0.12, // per kWh
+      currency: config?.currency ?? '€',
       ...config
     };
   }
@@ -61,22 +61,42 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     return null;
   }
 
-  _hasEntityStatesChanged(hass, oldHass) {
-    if (!hass || !oldHass) return false;
-    
-    // Get current energy monitoring entities
-    const huaweiEntities = Object.keys(hass.states).filter(id => 
-      id.includes('huawei_charger') && (
-        id.includes('session_energy') || 
-        id.includes('session_duration') ||
-        id.includes('total_energy') ||
-        id.includes('rated_charging_power') ||
-        id.includes('dynamic_power_limit')
+  _trackedEntityIds(hass) {
+    const tracked = new Set(
+      Object.keys(hass.states).filter(id =>
+        id.includes('huawei_charger') && (
+          id.includes('session_energy') ||
+          id.includes('session_duration') ||
+          id.includes('total_energy') ||
+          id.includes('rated_charging_power') ||
+          id.includes('dynamic_power_limit')
+        )
       )
     );
-    
+
+    [
+      this.config.session_energy_entity,
+      this.config.session_duration_entity,
+      this.config.total_energy_entity,
+      this.config.current_power_entity,
+      this.config.dynamic_power_entity,
+      this.config.rated_power_entity,
+    ].forEach(entityId => {
+      if (entityId && hass.states?.[entityId]) {
+        tracked.add(entityId);
+      }
+    });
+
+    return [...tracked];
+  }
+
+  _hasEntityStatesChanged(hass, oldHass) {
+    if (!hass || !oldHass) return false;
+
+    const trackedEntities = this._trackedEntityIds(hass);
+
     // Check if any relevant entity states changed by comparing with previous hass
-    for (const entityId of huaweiEntities) {
+    for (const entityId of trackedEntities) {
       const currentState = hass.states[entityId];
       const previousState = oldHass.states[entityId];
       

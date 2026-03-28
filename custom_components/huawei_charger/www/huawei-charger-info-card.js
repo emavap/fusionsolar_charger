@@ -59,6 +59,11 @@ class HuaweiChargerInfoCard extends HTMLElement {
     return null;
   }
 
+  _parseNumber(value) {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
     
@@ -151,6 +156,10 @@ class HuaweiChargerInfoCard extends HTMLElement {
     const statusRows = [];
     const diagnosticRows = [];
     const hasTemperature = this._isEntityAvailable(temperature);
+    const parsedTemperature = this._parseNumber(temperature?.state);
+    const parsedPhaseAVoltage = this._parseNumber(phaseAVoltage?.state);
+    const parsedPhaseBVoltage = this._parseNumber(phaseBVoltage?.state);
+    const parsedPhaseCVoltage = this._parseNumber(phaseCVoltage?.state);
 
     if (this._isEntityAvailable(deviceName)) {
       detailRows.push({ label: 'Name', value: deviceName.state });
@@ -171,11 +180,17 @@ class HuaweiChargerInfoCard extends HTMLElement {
     if (this._isEntityAvailable(hardwareVersion)) {
       statusRows.push({ label: 'Hardware', value: hardwareVersion.state });
     }
-    if (hasTemperature) {
-      statusRows.push({ label: 'Temperature', value: `${parseFloat(temperature.state || 0).toFixed(1)}°C` });
+    if (hasTemperature && parsedTemperature !== null) {
+      statusRows.push({ label: 'Temperature', value: `${parsedTemperature.toFixed(1)}°C` });
     }
     if (this._isEntityAvailable(lockStatus)) {
-      statusRows.push({ label: 'Lock Status', value: lockStatus.state === '1' ? 'Locked' : 'Unlocked' });
+      const lockValue = this._normalizeStateValue(lockStatus.state);
+      const lockLabel = lockValue === '1'
+        ? 'Locked'
+        : lockValue === '0'
+          ? 'Unlocked'
+          : lockStatus.state;
+      statusRows.push({ label: 'Lock Status', value: lockLabel });
     }
     if (this._isEntityAvailable(networkMode)) {
       statusRows.push({ label: 'Network Mode', value: networkMode.state });
@@ -210,9 +225,9 @@ class HuaweiChargerInfoCard extends HTMLElement {
     let healthColor = '#2196F3';
     let healthIcon = 'mdi:information';
     
-    const errorCodeValue = parseInt(errorCode?.state) || 0;
-    const warningCodeValue = parseInt(warningCode?.state) || 0;
-    const temp = parseFloat(temperature?.state) || 0;
+    const errorCodeValue = Number.parseInt(errorCode?.state, 10) || 0;
+    const warningCodeValue = Number.parseInt(warningCode?.state, 10) || 0;
+    const temp = parsedTemperature ?? 0;
     
     if (errorCodeValue > 0) {
       healthStatus = 'Error';
@@ -419,9 +434,9 @@ class HuaweiChargerInfoCard extends HTMLElement {
 
           ${this.config.show_diagnostic && (
             diagnosticRows.length > 0 ||
-            this._isEntityAvailable(phaseAVoltage) ||
-            this._isEntityAvailable(phaseBVoltage) ||
-            this._isEntityAvailable(phaseCVoltage) ||
+            parsedPhaseAVoltage !== null ||
+            parsedPhaseBVoltage !== null ||
+            parsedPhaseCVoltage !== null ||
             this._isEntityAvailable(errorCode) ||
             this._isEntityAvailable(warningCode)
           ) ? `
@@ -440,24 +455,24 @@ class HuaweiChargerInfoCard extends HTMLElement {
                     </div>
                   `).join('') : ''}
 
-                  ${(this._isEntityAvailable(phaseAVoltage) || this._isEntityAvailable(phaseBVoltage) || this._isEntityAvailable(phaseCVoltage)) ? `
+                  ${(parsedPhaseAVoltage !== null || parsedPhaseBVoltage !== null || parsedPhaseCVoltage !== null) ? `
                     <div class="voltage-readings">
-                      ${this._isEntityAvailable(phaseAVoltage) ? `
+                      ${parsedPhaseAVoltage !== null ? `
                         <div class="voltage-item">
                           <div class="voltage-phase">Phase A</div>
-                          <div class="voltage-value">${parseFloat(phaseAVoltage.state).toFixed(1)}V</div>
+                          <div class="voltage-value">${parsedPhaseAVoltage.toFixed(1)}V</div>
                         </div>
                       ` : ''}
-                      ${this._isEntityAvailable(phaseBVoltage) ? `
+                      ${parsedPhaseBVoltage !== null ? `
                         <div class="voltage-item">
                           <div class="voltage-phase">Phase B</div>
-                          <div class="voltage-value">${parseFloat(phaseBVoltage.state).toFixed(1)}V</div>
+                          <div class="voltage-value">${parsedPhaseBVoltage.toFixed(1)}V</div>
                         </div>
                       ` : ''}
-                      ${this._isEntityAvailable(phaseCVoltage) ? `
+                      ${parsedPhaseCVoltage !== null ? `
                         <div class="voltage-item">
                           <div class="voltage-phase">Phase C</div>
-                          <div class="voltage-value">${parseFloat(phaseCVoltage.state).toFixed(1)}V</div>
+                          <div class="voltage-value">${parsedPhaseCVoltage.toFixed(1)}V</div>
                         </div>
                       ` : ''}
                     </div>

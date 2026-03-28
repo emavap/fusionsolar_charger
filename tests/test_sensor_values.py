@@ -1,9 +1,11 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 from custom_components.huawei_charger import binary_sensor
+from custom_components.huawei_charger import sensor as sensor_platform
 from custom_components.huawei_charger.binary_sensor import (
     HuaweiChargerCredentialsRejectedBinarySensor,
 )
@@ -22,6 +24,7 @@ class DummyCoordinator:
         self.data = data
         self.entry = SimpleNamespace(entry_id=entry_id)
         self.last_update_success = last_update_success
+        self.config_signal_values = {}
         self.debug_data = {
             "last_update_status": "success",
             "last_update_error": None,
@@ -70,6 +73,20 @@ def test_voltage_sensor_rounds_to_one_decimal():
     sensor = HuaweiChargerSensor(coordinator, "2101259")
 
     assert sensor.native_value == pytest.approx(231.0)
+
+
+def test_session_energy_sensor_rounds_to_three_decimals():
+    coordinator = DummyCoordinator({"10009": 1.23456})
+    sensor = HuaweiChargerSensor(coordinator, "10009")
+
+    assert sensor.native_value == pytest.approx(1.235)
+
+
+def test_session_duration_sensor_formats_whole_minutes():
+    coordinator = DummyCoordinator({"10010": 5.0})
+    sensor = HuaweiChargerSensor(coordinator, "10010")
+
+    assert sensor.native_value == 5
 
 
 def test_network_mode_sensor_returns_raw_numeric_value():
@@ -178,10 +195,9 @@ def test_credentials_rejected_binary_sensor_off():
     assert sensor.is_on is False
 
 
-@pytest.mark.asyncio
-async def test_binary_sensor_setup_removes_legacy_auth_sensor(monkeypatch):
+def test_binary_sensor_setup_removes_legacy_auth_sensor(monkeypatch):
     coordinator = DummyCoordinator({"20017": True})
-    entry = SimpleNamespace(entry_id="test_entry")
+    entry = SimpleNamespace(entry_id="test_entry", async_on_unload=lambda callback: None)
     registry = MagicMock()
     registry_entries = [
         SimpleNamespace(
@@ -205,10 +221,12 @@ async def test_binary_sensor_setup_removes_legacy_auth_sensor(monkeypatch):
         lambda registry_arg, entry_id: registry_entries,
     )
 
-    await binary_sensor.async_setup_entry(
-        hass,
-        entry,
-        lambda entities: added_entities.extend(entities),
+    asyncio.run(
+        binary_sensor.async_setup_entry(
+            hass,
+            entry,
+            lambda entities: added_entities.extend(entities),
+        )
     )
 
     registry.async_remove.assert_called_once_with(
@@ -236,6 +254,23 @@ def test_active_sensor_registers_only_returns_present_registers():
 
     assert main == ["device_status", "10008"]
     assert diagnostic == ["10007", "20012", "99999", "33595393"]
+
+
+def test_active_sensor_registers_promotes_runtime_registers_to_main():
+    main, diagnostic = _active_sensor_registers(
+        {
+            "device_status": "Connected",
+            "20017": True,
+            "10008": 1.2,
+            "10009": 0.4,
+            "10010": 12,
+            "2101259": 231,
+        },
+        None,
+    )
+
+    assert main == ["device_status", "20017", "10008", "10009", "10010"]
+    assert diagnostic == ["2101259"]
 
 
 def test_active_sensor_registers_preserves_existing_ids_and_skips_sensitive():
@@ -279,3 +314,52 @@ def test_main_breaker_current_sensor_uses_ampere_unit():
 
     assert sensor.name == "Main Breaker Rated Current"
     assert sensor.native_value == 40
+
+
+def test_sensor_setup_removes_stale_dynamic_sensor_entries(monkeypatch):
+    coordinator = DummyCoordinator({"device_status": "Connected", "10008": 1.2})
+    entry = SimpleNamespace(entry_id="test_entry", async_on_unload=lambda callback: None)
+    registry = MagicMock()
+    registry_entries = [
+        SimpleNamespace(
+            domain="sensor",
+            unique_id="test_entry_sensor_device_status",
+            entity_id="sensor.huawei_charger_device_status",
+        ),
+        SimpleNamespace(
+            domain="sensor",
+            unique_id="test_entry_sensor_10008",
+            entity_id="sensor.huawei_charger_total_energy_charged",
+        ),
+        SimpleNamespace(
+            domain="sensor",
+            unique_id="test_entry_sensor_99999",
+            entity_id="sensor.huawei_charger_stale_register",
+        ),
+        SimpleNamespace(
+            domain="sensor",
+            unique_id="test_entry_debug_update",
+            entity_id="sensor.huawei_charger_debug_update_status",
+        ),
+    ]
+    hass = SimpleNamespace(data={DOMAIN: {entry.entry_id: coordinator}})
+    added_entities = []
+
+    monkeypatch.setattr(sensor_platform.er, "async_get", lambda hass_arg: registry)
+    monkeypatch.setattr(
+        sensor_platform.er,
+        "async_entries_for_config_entry",
+        lambda registry_arg, entry_id: registry_entries,
+    )
+
+    asyncio.run(
+        sensor_platform.async_setup_entry(
+            hass,
+            entry,
+            lambda entities: added_entities.extend(entities),
+        )
+    )
+
+    registry.async_remove.assert_called_once_with("sensor.huawei_charger_stale_register")
+    assert any(entity.unique_id == "test_entry_sensor_device_status" for entity in added_entities)
+    assert any(entity.unique_id == "test_entry_sensor_10008" for entity in added_entities)

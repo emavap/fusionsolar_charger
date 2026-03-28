@@ -1166,6 +1166,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                 "missing_writable_registers": [reg_id for reg_id in WRITABLE_REGISTERS if reg_id not in available_registers],
             }
         )
+        self._schedule_debug_state_push()
 
     def _clear_register_debug_state(self):
         self._ensure_debug_data()
@@ -1177,6 +1178,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                 "missing_writable_registers": list(WRITABLE_REGISTERS),
             }
         )
+        self._schedule_debug_state_push()
 
     def _record_update_debug(self, *, status, error=None, duration_ms=None, response_excerpt=None):
         self._ensure_debug_data()
@@ -1189,6 +1191,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                 "last_update_response_excerpt": response_excerpt,
             }
         )
+        self._schedule_debug_state_push()
 
     def _record_write_debug(
         self,

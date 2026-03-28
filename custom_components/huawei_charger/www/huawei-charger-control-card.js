@@ -26,10 +26,7 @@ class HuaweiChargerControlCard extends HTMLElement {
     if (this._ignoreUpdatesUntil && Date.now() < this._ignoreUpdatesUntil) {
       // But still check if the value has changed to what we expect
       if (this._pendingValue !== null) {
-        const huaweiEntities = Object.keys(hass.states).filter(id => 
-          id.includes('huawei_charger') && id.includes('dynamic_power_limit')
-        );
-        const dynamicEntity = huaweiEntities.length > 0 ? hass.states[huaweiEntities[0]] : null;
+        const dynamicEntity = this._findDynamicPowerEntity(hass);
         const currentValue = parseFloat(dynamicEntity?.state) || 0;
         
         if (Math.abs(currentValue - this._pendingValue) < 0.1) {
@@ -48,10 +45,7 @@ class HuaweiChargerControlCard extends HTMLElement {
     if (this._hasEntityStatesChanged(hass, oldHass)) {
       // Clear pending value if the real update matches what we expected
       if (this._pendingValue !== null) {
-        const huaweiEntities = Object.keys(hass.states).filter(id => 
-          id.includes('huawei_charger') && id.includes('dynamic_power_limit')
-        );
-        const dynamicEntity = huaweiEntities.length > 0 ? hass.states[huaweiEntities[0]] : null;
+        const dynamicEntity = this._findDynamicPowerEntity(hass);
         const currentValue = parseFloat(dynamicEntity?.state) || 0;
         
         if (Math.abs(currentValue - this._pendingValue) < 0.1) {
@@ -97,14 +91,75 @@ class HuaweiChargerControlCard extends HTMLElement {
     return null;
   }
 
+  _trackedEntityIds(hass) {
+    const tracked = new Set(
+      Object.keys(hass.states).filter(id =>
+        id.includes('huawei_charger') && (
+          id.includes('dynamic_power_limit') ||
+          id.includes('fixed_max_charging_power') ||
+          id.includes('fixed_max_power') ||
+          id.includes('device_status') ||
+          id.includes('charge_store') ||
+          id.includes('plugged_in') ||
+          id.includes('plugged')
+        )
+      )
+    );
+
+    [
+      this.config.dynamic_power_entity,
+      this.config.fixed_power_entity,
+      this.config.current_power_entity,
+      this.config.device_status_entity,
+      this.config.charge_store_entity,
+      this.config.plugged_in_entity,
+    ].forEach(entityId => {
+      if (entityId && hass.states?.[entityId]) {
+        tracked.add(entityId);
+      }
+    });
+
+    return [...tracked];
+  }
+
+  _getHuaweiEntities(hass = this._hass) {
+    return Object.keys(hass?.states || {}).filter((id) => id.includes('huawei_charger'));
+  }
+
+  _findDynamicPowerEntity(hass = this._hass) {
+    return this._findEntityBySuffixes(
+      this._getHuaweiEntities(hass),
+      ['dynamic_power_limit'],
+      this.config.dynamic_power_entity
+    );
+  }
+
+  _findDynamicPowerEntityId(hass = this._hass) {
+    if (this.config.dynamic_power_entity && hass?.states?.[this.config.dynamic_power_entity]) {
+      return this.config.dynamic_power_entity;
+    }
+
+    return this._getHuaweiEntities(hass).find((id) =>
+      id.endsWith('_dynamic_power_limit') || id.endsWith('.dynamic_power_limit')
+    ) || null;
+  }
+
   _deriveCableStatus(currentPowerEntity, deviceStatusEntity, chargeStoreEntity, pluggedInEntity) {
     const currentPower = parseFloat(currentPowerEntity?.state);
     const deviceStatusValue = this._normalizeStateValue(deviceStatusEntity?.state);
     const chargeStoreValue = this._normalizeStateValue(chargeStoreEntity?.state);
     const pluggedInValue = this._normalizeStateValue(pluggedInEntity?.state);
     const statusValue = deviceStatusValue || chargeStoreValue || pluggedInValue;
+    const chargingStates = ['3', 'charging', 'active'];
+    const readyStates = ['2', 'ready'];
+    const connectedStates = ['1', 'connected', 'plugged', 'true'];
 
-    if (Number.isFinite(currentPower) && currentPower > 0.1) {
+    if (
+      (Number.isFinite(currentPower) && currentPower > 0.1) ||
+      chargingStates.includes(deviceStatusValue) ||
+      chargingStates.includes(chargeStoreValue) ||
+      chargingStates.includes(pluggedInValue)
+    ) {
       return {
         status: 'Charging',
         icon: 'mdi:battery-charging',
@@ -112,7 +167,7 @@ class HuaweiChargerControlCard extends HTMLElement {
       };
     }
 
-    if (['2', 'ready'].includes(statusValue)) {
+    if (readyStates.includes(statusValue)) {
       return {
         status: 'Ready',
         icon: 'mdi:power-plug',
@@ -120,9 +175,7 @@ class HuaweiChargerControlCard extends HTMLElement {
       };
     }
 
-    if (
-      ['1', 'connected'].includes(statusValue)
-    ) {
+    if (connectedStates.includes(statusValue)) {
       return {
         status: 'Connected',
         icon: 'mdi:power-plug',
@@ -139,22 +192,11 @@ class HuaweiChargerControlCard extends HTMLElement {
 
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
-    
-    // Get current power control entities
-    const huaweiEntities = Object.keys(hass.states).filter(id => 
-      id.includes('huawei_charger') && (
-        id.includes('dynamic_power_limit') || 
-        id.includes('fixed_max_charging_power') || 
-        id.includes('fixed_max_power') ||
-        id.includes('device_status') ||
-        id.includes('charge_store') ||
-        id.includes('plugged_in') ||
-        id.includes('plugged')
-      )
-    );
-    
+
+    const trackedEntities = this._trackedEntityIds(hass);
+
     // Check if any relevant entity states changed by comparing with previous hass
-    for (const entityId of huaweiEntities) {
+    for (const entityId of trackedEntities) {
       const currentState = hass.states[entityId];
       const previousState = oldHass.states[entityId];
       
@@ -184,15 +226,9 @@ class HuaweiChargerControlCard extends HTMLElement {
     if (!this._hass) return;
 
     // Auto-detect power control entities
-    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
-      id.includes('huawei_charger')
-    );
+    const huaweiEntities = this._getHuaweiEntities();
     
-    const dynamicEntity = this._findEntityBySuffixes(
-      huaweiEntities,
-      ['dynamic_power_limit'],
-      this.config.dynamic_power_entity
-    );
+    const dynamicEntity = this._findDynamicPowerEntity();
     const fixedEntity = this._findEntityBySuffixes(
       huaweiEntities,
       ['fixed_max_charging_power', 'fixed_max_power'],
@@ -583,11 +619,7 @@ class HuaweiChargerControlCard extends HTMLElement {
     if (!this._hass || this._isUpdating) return;
     
     // Find the dynamic power limit entity
-    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
-      id.includes('huawei_charger')
-    );
-    const dynamicEntityId = huaweiEntities.find(id => id.includes('dynamic_power_limit')) || 
-                           this.config.dynamic_power_entity;
+    const dynamicEntityId = this._findDynamicPowerEntityId();
     
     if (!dynamicEntityId) return;
     

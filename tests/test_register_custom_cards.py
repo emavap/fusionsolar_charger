@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import logging
 from pathlib import Path
 
 huawei_init = importlib.import_module("custom_components.huawei_charger.__init__")
@@ -76,6 +77,7 @@ def test_register_custom_cards_handles_missing(tmp_path, monkeypatch, caplog):
     resources = FakeResources()
     hass = FakeHass(tmp_path, resources=resources)
     added_urls = []
+    caplog.set_level(logging.INFO)
 
     monkeypatch.setattr(huawei_init, "add_extra_js_url", lambda hass_arg, url: added_urls.append(url))
     monkeypatch.setattr(

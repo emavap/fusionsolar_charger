@@ -135,6 +135,7 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
     
     async def _debounced_write(self):
         """Execute a debounced write with rate limiting to protect EEPROM."""
+        current_task = asyncio.current_task()
         try:
             # Wait for debounce period
             await asyncio.sleep(self._debounce_delay)
@@ -183,6 +184,20 @@ class HuaweiChargerNumber(CoordinatorEntity, NumberEntity):
             self._log_warning("Debounced write cancelled for register %s", self._reg_id)
         except Exception as err:
             _LOGGER.error("Error in debounced write for register %s: %s", self._reg_id, err)
+        finally:
+            if self._pending_task is current_task:
+                self._pending_task = None
+
+    async def async_will_remove_from_hass(self):
+        pending_task = self._pending_task
+        if pending_task and not pending_task.done():
+            pending_task.cancel()
+            try:
+                await pending_task
+            except asyncio.CancelledError:
+                pass
+        self._pending_task = None
+        await super().async_will_remove_from_hass()
 
     @property
     def available(self):

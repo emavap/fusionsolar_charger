@@ -705,6 +705,23 @@ def test_update_register_debug_state_tracks_writable_registers():
     assert coordinator.debug_data["last_register_count"] == 2
     assert coordinator.debug_data["writable_registers_available"] == ["20001"]
     assert coordinator.debug_data["missing_writable_registers"] == ["538976598"]
+    assert coordinator._scheduled_calls
+
+
+def test_record_update_debug_schedules_coordinator_update():
+    coordinator = build_coordinator()
+    coordinator.data = {"10008": 1.2}
+
+    coordinator._record_update_debug(
+        status="error",
+        error="boom",
+        duration_ms=123,
+    )
+
+    assert coordinator._scheduled_calls
+    callback, args = coordinator._scheduled_calls[-1]
+    assert callback == coordinator.async_set_updated_data
+    assert args == (coordinator.data,)
 
 
 def test_record_write_debug_schedules_coordinator_update():

@@ -27,26 +27,39 @@ DEBUG_SENSOR_TYPES = {
 # Main sensors - visible by default (core charging information)
 MAIN_SENSOR_REGISTERS = [
     "device_status",  # Charger status from wallbox-info
+    "20017",      # Plugged In
     "10003",      # Rated Charging Power
     "10008",      # Total Energy Charged
+    "10009",      # Session Energy
+    "10010",      # Session Duration
 ]
 
 # Register configurations with units and device classes
 REGISTER_CONFIG = {
     # Energy related
     "10008": {"unit": UnitOfEnergy.KILO_WATT_HOUR, "device_class": SensorDeviceClass.ENERGY, "state_class": SensorStateClass.TOTAL_INCREASING},
+    "10009": {"unit": UnitOfEnergy.KILO_WATT_HOUR, "device_class": SensorDeviceClass.ENERGY},
     # Current related
     "20012": {"unit": UnitOfElectricCurrent.AMPERE, "device_class": SensorDeviceClass.CURRENT, "state_class": SensorStateClass.MEASUREMENT},
     # Power related
     "10003": {"unit": UnitOfPower.KILO_WATT, "device_class": SensorDeviceClass.POWER},
     # Timing related
+    "10010": {"unit": UnitOfTime.MINUTES, "state_class": SensorStateClass.MEASUREMENT},
     "539006290": {"unit": UnitOfTime.MINUTES, "state_class": SensorStateClass.MEASUREMENT},
+    # Voltage related
+    "2101259": {"unit": UnitOfElectricPotential.VOLT, "device_class": SensorDeviceClass.VOLTAGE, "state_class": SensorStateClass.MEASUREMENT},
+    "2101260": {"unit": UnitOfElectricPotential.VOLT, "device_class": SensorDeviceClass.VOLTAGE, "state_class": SensorStateClass.MEASUREMENT},
+    "2101261": {"unit": UnitOfElectricPotential.VOLT, "device_class": SensorDeviceClass.VOLTAGE, "state_class": SensorStateClass.MEASUREMENT},
 }
 
 
 def _register_sort_key(reg_id):
     reg_id = str(reg_id)
     return (0, int(reg_id)) if reg_id.isdigit() else (1, reg_id)
+
+
+def _sensor_unique_id(entry_id, reg_id):
+    return f"{entry_id}_sensor_{reg_id}"
 
 
 def _active_sensor_registers(data, config_signal_values=None, existing_register_ids=None):
@@ -86,16 +99,24 @@ async def async_setup_entry(hass, entry, async_add_entities):
     for debug_type in DEBUG_SENSOR_TYPES:
         entities.append(HuaweiChargerDebugSensor(coordinator, debug_type))
 
+    active_sensor_ids = set(active_main + active_diagnostic)
     for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if (
-            registry_entry.domain == "sensor"
-            and registry_entry.unique_id
-            and registry_entry.unique_id
-            in {
-                f"{entry.entry_id}_sensor_{sensitive_reg_id}"
-                for sensitive_reg_id in SENSITIVE_REGISTERS
-            }
-        ):
+        if registry_entry.domain != "sensor" or not registry_entry.unique_id:
+            continue
+
+        if registry_entry.unique_id in {
+            _sensor_unique_id(entry.entry_id, sensitive_reg_id)
+            for sensitive_reg_id in SENSITIVE_REGISTERS
+        }:
+            registry.async_remove(registry_entry.entity_id)
+            continue
+
+        sensor_prefix = f"{entry.entry_id}_sensor_"
+        if not registry_entry.unique_id.startswith(sensor_prefix):
+            continue
+
+        reg_id = registry_entry.unique_id[len(sensor_prefix):]
+        if reg_id not in active_sensor_ids:
             registry.async_remove(registry_entry.entity_id)
 
     async_add_entities(entities)
@@ -127,7 +148,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
         known_register_ids.update(new_register_ids)
         async_add_entities(new_entities)
 
-    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
+    remove_listener = coordinator.async_add_listener(_async_add_new_sensors)
+    if hasattr(entry, "async_on_unload"):
+        entry.async_on_unload(remove_listener)
 
 class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, reg_id, is_diagnostic=False):
@@ -180,13 +203,16 @@ class HuaweiChargerSensor(CoordinatorEntity, SensorEntity):
                 return float(raw_value)
             
             # For energy values, ensure proper formatting
-            if self._reg_id in ["10008"]:
+            if self._reg_id in ["10008", "10009"]:
                 if isinstance(raw_value, (int, float)):
                     return round(float(raw_value), 3)
 
             # For current/time values, ensure proper formatting
-            if self._reg_id in ["20012", "539006290"] and isinstance(raw_value, (int, float)):
+            if self._reg_id in ["10010", "20012", "539006290"] and isinstance(raw_value, (int, float)):
                 return int(raw_value) if float(raw_value).is_integer() else round(float(raw_value), 1)
+
+            if self._reg_id in ["2101259", "2101260", "2101261"] and isinstance(raw_value, (int, float)):
+                return round(float(raw_value), 1)
                     
             # Special handling for Device Info register (2101251)
             if self._reg_id == "2101251":

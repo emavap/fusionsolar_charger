@@ -42,6 +42,16 @@ class FakeResources:
         return item
 
 
+class FakeResourceItem:
+    def __init__(self, url: str):
+        self.url = url
+
+
+class FakeLovelaceData:
+    def __init__(self, resources):
+        self.resources = resources
+
+
 def test_register_custom_cards_copies_once(tmp_path, monkeypatch):
     resources = FakeResources()
     hass = FakeHass(tmp_path, resources=resources)
@@ -112,3 +122,18 @@ def test_register_custom_cards_skips_existing_lovelace_resources(tmp_path, monke
     asyncio.run(huawei_init.register_custom_cards(hass))
 
     assert existing_url not in {item["url"] for item in resources.created}
+
+
+def test_register_custom_cards_supports_lovelace_object_data(tmp_path, monkeypatch):
+    existing_url = "/local/community/huawei_charger/huawei-charger-status-card.js"
+    resources = FakeResources([FakeResourceItem(existing_url)])
+    hass = FakeHass(tmp_path)
+    hass.data["lovelace"] = FakeLovelaceData(resources)
+    added_urls = []
+
+    monkeypatch.setattr(huawei_init, "add_extra_js_url", lambda hass_arg, url: added_urls.append(url))
+
+    asyncio.run(huawei_init.register_custom_cards(hass))
+
+    assert existing_url not in {item["url"] for item in resources.created}
+    assert len(resources.created) == len(huawei_init.CUSTOM_CARDS) - 1

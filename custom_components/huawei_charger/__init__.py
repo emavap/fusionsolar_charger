@@ -9,6 +9,7 @@ from homeassistant.components.lovelace.const import (
 from homeassistant.const import CONF_URL
 import os
 import logging
+from collections.abc import Mapping
 
 from .const import DOMAIN
 from .services import async_register_services, async_unregister_services
@@ -25,16 +26,34 @@ CUSTOM_CARDS = [
 ]
 
 
+def _get_lovelace_resources(hass: HomeAssistant):
+    """Return the Lovelace resources collection across HA API variants."""
+    lovelace_data = hass.data.get(LOVELACE_DOMAIN)
+    if lovelace_data is None:
+        return None
+    if isinstance(lovelace_data, Mapping):
+        return lovelace_data.get("resources")
+    return getattr(lovelace_data, "resources", None)
+
+
+def _get_resource_url(item) -> str | None:
+    """Read a Lovelace resource URL from dict-like or object-like items."""
+    if isinstance(item, Mapping):
+        return item.get(CONF_URL)
+    return getattr(item, CONF_URL, None)
+
+
 async def _register_lovelace_resources(hass: HomeAssistant, card_urls: list[str]) -> None:
     """Register custom cards as Lovelace module resources when available."""
-    lovelace_resources = hass.data.get(LOVELACE_DOMAIN, {}).get("resources")
+    lovelace_resources = _get_lovelace_resources(hass)
     if lovelace_resources is None or not hasattr(lovelace_resources, "async_create_item"):
         return
 
     await lovelace_resources.async_get_info()
     existing_urls = {
-        item.get(CONF_URL)
+        _get_resource_url(item)
         for item in (lovelace_resources.async_items() or [])
+        if _get_resource_url(item)
     }
     for card_url in card_urls:
         if card_url in existing_urls:

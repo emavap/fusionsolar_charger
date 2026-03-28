@@ -63,11 +63,9 @@ def _sensor_unique_id(entry_id, reg_id):
 
 
 def _active_sensor_registers(data, config_signal_values=None, existing_register_ids=None):
-    available_registers = {str(reg_id) for reg_id in data}
-    if config_signal_values:
-        available_registers.update(str(reg_id) for reg_id in config_signal_values)
-    if existing_register_ids:
-        available_registers.update(str(reg_id) for reg_id in existing_register_ids)
+    available_registers = {str(reg_id) for reg_id in (data or {})}
+    available_registers.update(str(reg_id) for reg_id in (config_signal_values or {}))
+    available_registers.update(str(reg_id) for reg_id in (existing_register_ids or set()))
 
     available_registers.difference_update(WRITABLE_REGISTERS)
     available_registers.difference_update(SENSITIVE_REGISTERS)
@@ -84,9 +82,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     entities = []
     registry = er.async_get(hass)
+    current_data = getattr(coordinator, "data", None) or getattr(coordinator, "param_values", {})
 
     active_main, active_diagnostic = _active_sensor_registers(
-        coordinator.data,
+        current_data,
         coordinator.config_signal_values,
     )
 
@@ -126,9 +125,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
     @callback
     def _async_add_new_sensors():
         nonlocal known_register_ids
+        updated_data = getattr(coordinator, "data", None) or getattr(coordinator, "param_values", {})
 
         updated_main, updated_diagnostic = _active_sensor_registers(
-            coordinator.data,
+            updated_data,
             coordinator.config_signal_values,
             known_register_ids,
         )

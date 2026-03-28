@@ -22,6 +22,7 @@ class DummyCoordinator:
 
     def __init__(self, data, entry_id="test_entry", last_update_success=True):
         self.data = data
+        self.param_values = data or {}
         self.entry = SimpleNamespace(entry_id=entry_id)
         self.last_update_success = last_update_success
         self.config_signal_values = {}
@@ -294,6 +295,16 @@ def test_active_sensor_registers_does_not_keep_missing_registry_ids_by_default()
     assert diagnostic == []
 
 
+def test_active_sensor_registers_handles_missing_runtime_data():
+    main, diagnostic = _active_sensor_registers(
+        None,
+        None,
+    )
+
+    assert main == []
+    assert diagnostic == []
+
+
 def test_known_diagnostic_register_uses_mapped_name():
     coordinator = DummyCoordinator({"10007": "SCharger-7KS-S0"})
     sensor = HuaweiChargerSensor(coordinator, "10007", is_diagnostic=True)
@@ -361,5 +372,32 @@ def test_sensor_setup_removes_stale_dynamic_sensor_entries(monkeypatch):
     )
 
     registry.async_remove.assert_called_once_with("sensor.huawei_charger_stale_register")
+    assert any(entity.unique_id == "test_entry_sensor_device_status" for entity in added_entities)
+    assert any(entity.unique_id == "test_entry_sensor_10008" for entity in added_entities)
+
+
+def test_sensor_setup_uses_param_values_when_coordinator_data_is_none(monkeypatch):
+    coordinator = DummyCoordinator(None)
+    coordinator.param_values = {"device_status": "Connected", "10008": 1.2}
+    entry = SimpleNamespace(entry_id="test_entry", async_on_unload=lambda callback: None)
+    registry = MagicMock()
+    hass = SimpleNamespace(data={DOMAIN: {entry.entry_id: coordinator}})
+    added_entities = []
+
+    monkeypatch.setattr(sensor_platform.er, "async_get", lambda hass_arg: registry)
+    monkeypatch.setattr(
+        sensor_platform.er,
+        "async_entries_for_config_entry",
+        lambda registry_arg, entry_id: [],
+    )
+
+    asyncio.run(
+        sensor_platform.async_setup_entry(
+            hass,
+            entry,
+            lambda entities: added_entities.extend(entities),
+        )
+    )
+
     assert any(entity.unique_id == "test_entry_sensor_device_status" for entity in added_entities)
     assert any(entity.unique_id == "test_entry_sensor_10008" for entity in added_entities)

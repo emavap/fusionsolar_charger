@@ -17,6 +17,7 @@ A comprehensive status card that displays:
 **File**: `huawei-charger-control-card.js`
 
 An interactive control panel featuring:
+- Start/stop session buttons wired to the integration services
 - Power limit slider with real-time adjustment
 - Quick preset buttons (Eco, Normal, Fast, Max)
 - Current settings display
@@ -72,6 +73,9 @@ type: custom:huawei-charger-status-card
 ```yaml
 type: custom:huawei-charger-control-card
 # Optional but recommended when you have multiple chargers:
+# entry_id: 1234567890abcdef1234567890abcdef
+# gun_number: 1
+# account_id: 10000001
 # dynamic_power_entity: number.huawei_charger_dynamic_power_limit
 # current_power_entity: sensor.huawei_charger_current_power
 ```
@@ -129,6 +133,9 @@ cards:
 | `device_status_entity` | string | auto-detected | Explicit charger status entity |
 | `charge_store_entity` | string | auto-detected | Explicit station charge-store entity |
 | `plugged_in_entity` | string | auto-detected | Explicit plugged/connected entity |
+| `entry_id` | string | optional | Required when multiple Huawei Charger config entries exist and the card should target a specific one |
+| `gun_number` | number | `1` | Charger connector used for `start_charge` and `stop_charge` |
+| `account_id` | string/number | optional | Passed only to `start_charge` when your FusionSolar tenant requires it |
 
 ### Energy Card
 | Option | Type | Default | Description |
@@ -153,6 +160,7 @@ cards:
 - **Health status badges** with error/warning indicators
 
 ### Interactive Elements
+- **Start/stop charging buttons** driven by the new cloud session services
 - **Real-time power slider** with instant visual feedback
 - **Preset power buttons** for common charging scenarios
 - **Expandable diagnostic section** to save space

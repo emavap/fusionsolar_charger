@@ -137,7 +137,7 @@ def test_options_flow_updates_host_from_active_integration():
             async_update_entry=async_update_entry,
         )
     )
-    flow.config_entry = entry
+    flow._config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(
@@ -178,7 +178,7 @@ def test_options_schema_includes_logging_toggle():
     flow.hass = SimpleNamespace(
         config_entries=SimpleNamespace(async_get_entry=lambda entry_id: entry)
     )
-    flow.config_entry = entry
+    flow._config_entry = entry
 
     schema = flow._options_schema(entry)
 
@@ -209,7 +209,7 @@ def test_options_flow_missing_logging_value_turns_logging_off():
             async_update_entry=async_update_entry,
         )
     )
-    flow.config_entry = entry
+    flow._config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(
@@ -263,7 +263,7 @@ def test_options_flow_string_false_turns_logging_off():
             async_update_entry=async_update_entry,
         )
     )
-    flow.config_entry = entry
+    flow._config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(

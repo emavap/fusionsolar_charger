@@ -2,7 +2,9 @@ from types import SimpleNamespace
 
 from custom_components.huawei_charger.const import DOMAIN
 from custom_components.huawei_charger.services import (
+    _coerce_service_value,
     _get_coordinators,
+    _resolve_single_coordinator,
     _refresh_config_signals,
     build_config_signal_dump,
 )
@@ -54,6 +56,18 @@ class DummyCoordinator:
     def _update_register_debug_state(self):
         self.calls.append("update_debug")
 
+    def set_config_value(self, param_id, value):
+        self.calls.append(("set_config_value", param_id, value))
+        return True
+
+    def start_charge(self, *, gun_number=1, account_id=None):
+        self.calls.append(("start_charge", gun_number, account_id))
+        return True
+
+    def stop_charge(self, *, gun_number=1, order_number=None, serial_number=None):
+        self.calls.append(("stop_charge", gun_number, order_number, serial_number))
+        return True
+
 
 def test_build_config_signal_dump_highlights_candidates_and_masks_sensitive():
     coordinator = DummyCoordinator()
@@ -99,3 +113,19 @@ def test_get_coordinators_filters_internal_keys_and_entry_id():
 
     assert _get_coordinators(hass) == [first, second]
     assert _get_coordinators(hass, entry_id="entry-2") == [second]
+
+
+def test_resolve_single_coordinator_returns_matching_entry():
+    coordinator = DummyCoordinator(entry_id="entry-1")
+    hass = SimpleNamespace(data={DOMAIN: {"entry-1": coordinator}})
+    call = SimpleNamespace(data={"entry_id": "entry-1"})
+
+    assert _resolve_single_coordinator(hass, call, "start_charge") is coordinator
+
+
+def test_coerce_service_value_parses_common_scalars():
+    assert _coerce_service_value("true") is True
+    assert _coerce_service_value("false") is False
+    assert _coerce_service_value("42") == 42
+    assert _coerce_service_value("4.2") == 4.2
+    assert _coerce_service_value("start") == "start"

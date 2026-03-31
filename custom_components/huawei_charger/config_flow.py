@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from urllib.parse import urlparse
 
@@ -415,6 +417,10 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
         )
 
     def _get_config_entry(self):
+        config_entry = getattr(self, "_config_entry", None)
+        if config_entry is not None:
+            return config_entry
+
         config_entry = getattr(self, "config_entry", None)
         if config_entry is not None:
             return config_entry

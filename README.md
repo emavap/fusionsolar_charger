@@ -60,10 +60,21 @@ Important entities:
 
 Diagnostic service:
 
+- `huawei_charger.start_charge`
+  - Calls FusionSolar's charger session start endpoint
+  - Uses `gun_number` 1 by default
+  - Accepts an optional `account_id` override if your tenant requires it
+- `huawei_charger.stop_charge`
+  - Calls FusionSolar's charger session stop endpoint
+  - Uses `gun_number` 1 by default
+  - Automatically resolves the active `orderNumber` and `serialNumber` from live process data when possible
 - `huawei_charger.dump_config_signals`
   - Refreshes the charger config-signal catalog
   - Logs a `session_control_candidates` section based on signal names/options
   - Logs the full config-signal catalog returned by Huawei for reverse engineering
+- `huawei_charger.set_config_signal`
+  - Writes an arbitrary Huawei config signal through the same FusionSolar cloud endpoint used for existing writable controls
+  - Intended for testing hidden start/stop, mode, authorization, or scheduling signals discovered by `dump_config_signals`
 
 ## Logging
 
@@ -71,11 +82,46 @@ Detailed Huawei logging is optional. When enabled, the integration logs sanitize
 
 - authentication
 - station discovery
+- charger start/stop actions
+- charger process-data lookups
 - wallbox realtime data
 - config signal reads
 - config signal writes
 
+To start charging from Developer Tools > Actions:
+
+```yaml
+action: huawei_charger.start_charge
+data:
+  gun_number: 1
+```
+
+To stop charging:
+
+```yaml
+action: huawei_charger.stop_charge
+data:
+  gun_number: 1
+```
+
+If your FusionSolar tenant rejects `start_charge`, try again with an explicit `account_id`. If `stop_charge` cannot infer the active session metadata, you can also pass `order_number` and `serial_number` manually.
+
 To inspect potential hidden start/stop fields, call `huawei_charger.dump_config_signals` from Developer Tools > Actions after a successful refresh. The service writes the results to the Home Assistant log and highlights likely session-control signals such as working modes, authorization, scheduling, or enable/disable fields.
+
+Once you find a plausible candidate, test it with `huawei_charger.set_config_signal` from Developer Tools > Actions. Example payload:
+
+```yaml
+action: huawei_charger.set_config_signal
+data:
+  param_id: "30001"
+  value: "1"
+```
+
+Then inspect:
+
+- `sensor.huawei_charger_debug_write_status`
+- the Home Assistant log output for `set_config_signal`
+- charger behavior in FusionSolar
 
 Sensitive values such as passwords, tokens, cookies, and CSRF-style values are redacted before logging.
 

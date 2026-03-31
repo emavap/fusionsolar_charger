@@ -17,7 +17,7 @@ from .const import DOMAIN
 from .services import async_register_services, async_unregister_services
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["sensor", "number", "binary_sensor"]
+PLATFORMS = ["sensor", "number", "binary_sensor", "button"]
 
 # Custom cards to register
 CUSTOM_CARDS = [

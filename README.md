@@ -54,6 +54,9 @@ Important entities:
 
 - `number.huawei_charger_fixed_max_charging_power`
 - `number.huawei_charger_dynamic_power_limit`
+- `binary_sensor.huawei_charger_vehicle_connected`
+- `button.huawei_charger_start_charging`
+- `button.huawei_charger_stop_charging`
 - `sensor.huawei_charger_debug_update_status`
 - `sensor.huawei_charger_debug_write_status`
 - `binary_sensor.huawei_charger_reauthentication_required`

@@ -52,6 +52,7 @@ The integration only creates entities for charger values actually returned by Hu
 
 Important entities:
 
+- `switch.huawei_charger_charging`
 - `number.huawei_charger_fixed_max_charging_power`
 - `number.huawei_charger_dynamic_power_limit`
 - `binary_sensor.huawei_charger_vehicle_connected`
@@ -64,11 +65,11 @@ Important entities:
 Diagnostic service:
 
 - `huawei_charger.start_charge`
-  - Calls FusionSolar's charger session start endpoint
+  - Calls FusionSolar's charger session start endpoint confirmed from the FusionSolar APK
   - Uses `gun_number` 1 by default
   - Accepts an optional `account_id` override if your tenant requires it
 - `huawei_charger.stop_charge`
-  - Calls FusionSolar's charger session stop endpoint
+  - Calls FusionSolar's charger session stop endpoint confirmed from the FusionSolar APK
   - Uses `gun_number` 1 by default
   - Automatically resolves the active `orderNumber` and `serialNumber` from live process data when possible
 - `huawei_charger.dump_config_signals`
@@ -76,8 +77,8 @@ Diagnostic service:
   - Logs a `session_control_candidates` section based on signal names/options
   - Logs the full config-signal catalog returned by Huawei for reverse engineering
 - `huawei_charger.set_config_signal`
-  - Writes an arbitrary Huawei config signal through the same FusionSolar cloud endpoint used for existing writable controls
-  - Intended for testing hidden start/stop, mode, authorization, or scheduling signals discovered by `dump_config_signals`
+  - Writes an arbitrary Huawei config signal through Huawei's config-signal endpoint
+  - Intended only for experimental config fields such as mode, authorization, or scheduling
 
 ## Logging
 
@@ -108,6 +109,8 @@ data:
 ```
 
 If your FusionSolar tenant rejects `start_charge`, try again with an explicit `account_id`. If `stop_charge` cannot infer the active session metadata, you can also pass `order_number` and `serial_number` manually.
+
+The `switch.huawei_charger_charging`, `button.huawei_charger_start_charging`, and `button.huawei_charger_stop_charging` entities use those APK-confirmed session endpoints. They do not depend on guessed writable config registers.
 
 To inspect potential hidden start/stop fields, call `huawei_charger.dump_config_signals` from Developer Tools > Actions after a successful refresh. The service writes the results to the Home Assistant log and highlights likely session-control signals such as working modes, authorization, scheduling, or enable/disable fields.
 

@@ -4,65 +4,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-
-
-CONNECTED_STATE_VALUES = {
-    "1",
-    "2",
-    "3",
-    "true",
-    "connected",
-    "plugged",
-    "plugged_in",
-    "ready",
-    "charging",
-    "active",
-}
-
-DISCONNECTED_STATE_VALUES = {
-    "0",
-    "false",
-    "disconnected",
-    "unplugged",
-    "not_connected",
-    "idle",
-    "none",
-}
-
-
-def _normalize_state(value):
-    return str(value).strip().lower() if value is not None else None
-
-
-def _is_connected_state(value):
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-
-    normalized = _normalize_state(value)
-    if not normalized:
-        return None
-    if normalized in CONNECTED_STATE_VALUES:
-        return True
-    if normalized in DISCONNECTED_STATE_VALUES:
-        return False
-    return None
-
-
-def _vehicle_connected_state(coordinator):
-    raw_plugged = coordinator.get_register_value("20017")
-    plugged_state = _is_connected_state(raw_plugged)
-    if plugged_state is not None:
-        return plugged_state, "20017"
-
-    for reg_id in ("device_status", "charge_store"):
-        reg_value = coordinator.get_register_value(reg_id)
-        derived_state = _is_connected_state(reg_value)
-        if derived_state is not None:
-            return derived_state, reg_id
-
-    return None, None
+from .session_state import vehicle_connected_state
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -139,12 +81,12 @@ class HuaweiChargerVehicleConnectedBinarySensor(CoordinatorEntity, BinarySensorE
 
     @property
     def is_on(self):
-        state, _ = _vehicle_connected_state(self.coordinator)
-        return state
+        state, _ = vehicle_connected_state(self.coordinator)
+        return bool(state)
 
     @property
     def available(self):
-        state, _ = _vehicle_connected_state(self.coordinator)
+        state, _ = vehicle_connected_state(self.coordinator)
         return state is not None
 
     @property
@@ -153,7 +95,7 @@ class HuaweiChargerVehicleConnectedBinarySensor(CoordinatorEntity, BinarySensorE
 
     @property
     def extra_state_attributes(self):
-        state, source = _vehicle_connected_state(self.coordinator)
+        state, source = vehicle_connected_state(self.coordinator)
         return {
             "source_register": source,
             "plugged_in_raw": self.coordinator.get_register_value("20017"),

@@ -23,7 +23,7 @@ An interactive control panel featuring:
 - Current settings display
 - Visual feedback for active presets
 
-The integration also exposes native Home Assistant button entities for start/stop charging and a binary sensor for vehicle connection state, so dashboards can use either the custom card or standard HA cards.
+The integration also exposes native Home Assistant switch/button entities for charging control and a binary sensor for vehicle connection state, so dashboards can use either the custom card or standard HA cards. Those controls use the APK-confirmed FusionSolar session endpoints rather than guessed writable registers.
 
 ### 3. Huawei Charger Energy Card
 **File**: `huawei-charger-energy-card.js`

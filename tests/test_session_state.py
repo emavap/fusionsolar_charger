@@ -24,8 +24,11 @@ def test_is_connected_state_handles_common_values():
     assert is_connected_state(0) is False
     assert is_connected_state("ready") is True
     assert is_connected_state("plugged") is True
+    assert is_connected_state("4") is True
+    assert is_connected_state("10") is True
     assert is_connected_state("false") is False
     assert is_connected_state("idle") is False
+    assert is_connected_state("98") is False
     assert is_connected_state("mystery") is None
 
 
@@ -63,7 +66,10 @@ def test_is_charging_state_handles_common_values():
     assert is_charging_state(0) is False
     assert is_charging_state("charging") is True
     assert is_charging_state("3") is True
+    assert is_charging_state("11") is True
     assert is_charging_state("ready") is False
+    assert is_charging_state("4") is False
+    assert is_charging_state("8") is False
     assert is_charging_state("plugged") is False
     assert is_charging_state("mystery") is None
 

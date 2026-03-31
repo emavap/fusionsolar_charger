@@ -2,6 +2,11 @@ CONNECTED_STATE_VALUES = {
     "1",
     "2",
     "3",
+    "4",
+    "6",
+    "8",
+    "10",
+    "11",
     "true",
     "connected",
     "plugged",
@@ -13,6 +18,9 @@ CONNECTED_STATE_VALUES = {
 
 DISCONNECTED_STATE_VALUES = {
     "0",
+    "97",
+    "98",
+    "99",
     "false",
     "disconnected",
     "unplugged",
@@ -23,6 +31,7 @@ DISCONNECTED_STATE_VALUES = {
 
 CHARGING_STATE_VALUES = {
     "3",
+    "11",
     "charging",
     "active",
 }
@@ -31,6 +40,16 @@ NOT_CHARGING_STATE_VALUES = {
     "0",
     "1",
     "2",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "97",
+    "98",
+    "99",
     "false",
     "connected",
     "plugged",

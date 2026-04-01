@@ -89,12 +89,21 @@ class HuaweiChargerInfoCard extends HTMLElement {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  _candidateEntityIds(hass = this._hass) {
+    const allEntityIds = Object.keys(this._stateMap(hass));
+    const exactMatches = allEntityIds.filter((id) => id.includes('huawei_charger'));
+    if (exactMatches.length > 0) {
+      return exactMatches;
+    }
+    return allEntityIds.filter((id) => id.includes('charger') || id.includes('huawei'));
+  }
+
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
     
     // Get current device info entities
-    const huaweiEntities = Object.keys(this._stateMap(hass)).filter(id =>
-      id.includes('huawei_charger') && (
+    const huaweiEntities = this._candidateEntityIds(hass).filter(id =>
+      (
         id.includes('device_name') ||
         id.includes('alias') ||
         id.includes('esn') ||
@@ -138,9 +147,7 @@ class HuaweiChargerInfoCard extends HTMLElement {
     if (!this._hass) return;
 
     // Auto-detect device info entities
-    const huaweiEntities = Object.keys(this._stateMap()).filter(id =>
-      id.includes('huawei_charger')
-    );
+    const huaweiEntities = this._candidateEntityIds();
     
     // Get device info entities
     const deviceName = this._findEntityBySuffixes(huaweiEntities, ['device_name', 'alias']);

@@ -1,7 +1,7 @@
 {
   "domain": "huawei_charger",
   "name": "Huawei Charger",
-  "version": "2.0.11",
+  "version": "2.0.12",
   "documentation": "https://github.com/emavap/fusionsolar_charger",
   "requirements": [],
   "dependencies": [],

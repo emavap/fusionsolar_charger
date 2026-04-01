@@ -1,6 +1,5 @@
 CONNECTED_STATE_VALUES = {
     "1",
-    "2",
     "3",
     "4",
     "6",
@@ -11,7 +10,6 @@ CONNECTED_STATE_VALUES = {
     "connected",
     "plugged",
     "plugged_in",
-    "ready",
     "charging",
     "active",
 }
@@ -68,8 +66,6 @@ def normalize_state(value):
 def is_connected_state(value):
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
-        return value != 0
 
     normalized = normalize_state(value)
     if not normalized:

@@ -77,7 +77,7 @@ def test_derive_locale_variants():
     assert coordinator._derive_locale() == "en_US"
 
     coordinator.hass.config.language = "fr"
-    assert coordinator._derive_locale() == DEFAULT_LOCALE
+    assert coordinator._derive_locale() == "fr_FR"
 
     coordinator.hass.config.language = None
     assert coordinator._derive_locale() == DEFAULT_LOCALE
@@ -292,6 +292,32 @@ def test_fetch_station_dn_stores_charge_store():
     assert coordinator.station_values == {"charge_store": "Connected"}
 
 
+def test_fetch_station_dn_prefers_configured_station():
+    coordinator = build_coordinator()
+    coordinator.preferred_station_dn = "NE=station-2"
+    coordinator._request_post = lambda *args, **kwargs: DummyResponse(
+        {
+            "data": {
+                "list": [
+                    {
+                        "dn": "NE=station-1",
+                        "chargeStore": "Connected",
+                    },
+                    {
+                        "dn": "NE=station-2",
+                        "chargeStore": "Disconnected",
+                    },
+                ]
+            }
+        }
+    )
+
+    coordinator.fetch_station_dn()
+
+    assert coordinator.dn_id == "NE=station-2"
+    assert coordinator.station_values == {"charge_store": "Disconnected"}
+
+
 def test_fetch_wallbox_info_falls_back_to_realtime_data():
     coordinator = build_coordinator()
     coordinator.dn_id = "NE=149170766"
@@ -365,6 +391,40 @@ def test_fetch_wallbox_info_keeps_config_values_separate_from_runtime_values():
         "20001": 4.0,
         "538976598": 7.4,
     }
+
+
+def test_fetch_wallbox_info_prefers_configured_wallbox():
+    coordinator = build_coordinator()
+    coordinator.dn_id = "NE=149170766"
+    coordinator.preferred_wallbox_dn = "NE=wallbox-2"
+    coordinator.fetch_wallbox_config_probe = lambda: {}
+    coordinator.fetch_wallbox_realtime_data = lambda: {}
+    coordinator._request_post = lambda *args, **kwargs: DummyResponse(
+        {
+            "code": 0,
+            "data": [
+                {
+                    "dn": "NE=wallbox-1",
+                    "dnId": 111,
+                    "deviceStatus": "1",
+                    "paramValues": {"10003": "7.4"},
+                },
+                {
+                    "dn": "NE=wallbox-2",
+                    "dnId": 222,
+                    "deviceStatus": "3",
+                    "paramValues": {"10003": "11"},
+                },
+            ],
+        }
+    )
+
+    result = coordinator.fetch_wallbox_info()
+
+    assert coordinator.wallbox_dn == "NE=wallbox-2"
+    assert coordinator.wallbox_dn_id == 222
+    assert result["device_status"] == "3"
+    assert result["10003"] == 11
 
 
 def test_fetch_wallbox_config_probe_uses_dn_get_shape():
@@ -545,6 +605,7 @@ def test_fetch_wallbox_history_probe_marks_completed(monkeypatch):
 def test_set_config_value_success(monkeypatch):
     coordinator = build_coordinator()
     coordinator.data = {"20001": 2.5}
+    coordinator.param_values = {"20001": 2.5}
     calls = []
 
     def fake_request_post(url, *, json=None, data=None, headers=None, operation=None):
@@ -566,6 +627,7 @@ def test_set_config_value_success(monkeypatch):
     assert headers is not coordinator.headers  # copy made
     assert headers["Content-Type"] == "application/x-www-form-urlencoded"
     assert coordinator._scheduled_calls
+    assert coordinator.param_values["20001"] == 3.2
     assert coordinator.config_signal_values["20001"] == 3.2
 
 
@@ -599,6 +661,29 @@ def test_set_config_value_returns_error_when_new_endpoint_fails():
         "set-config-new:20001",
     ]
     assert sleep_calls == [1, 2]
+
+
+def test_set_config_value_rejects_error_payloads():
+    coordinator = build_coordinator()
+    coordinator.param_values = {"20001": 2.5}
+    calls = []
+
+    def fake_request_post(url, *, json=None, data=None, headers=None, operation=None):
+        calls.append(operation)
+        return DummyResponse({"code": 1, "message": "write denied"}, status_code=200)
+
+    coordinator._request_post = fake_request_post
+
+    result = coordinator.set_config_value("20001", 3.2)
+
+    assert result is False
+    assert calls == [
+        "set-config-new:20001",
+        "set-config-new:20001",
+        "set-config-new:20001",
+    ]
+    assert coordinator.param_values["20001"] == 2.5
+    assert coordinator.config_signal_values.get("20001") is None
 
 
 def test_set_config_value_reauth_flow(monkeypatch):
@@ -694,6 +779,16 @@ def test_set_config_value_recovers_wallbox_context_after_reauth(monkeypatch):
     assert post_calls[1][0].startswith("https://5.6.7.8:32800/")
     assert post_calls[1][1] is None
     assert post_calls[1][2]["dn"] == "NE=wallbox-restored"
+
+
+def test_charge_action_succeeded_handles_huawei_code_and_result_fields():
+    coordinator = build_coordinator()
+
+    assert coordinator._charge_action_succeeded({"code": 0}) is True
+    assert coordinator._charge_action_succeeded({"result": "success"}) is True
+    assert coordinator._charge_action_succeeded({"code": 1}) is False
+    assert coordinator._charge_action_succeeded({"result": "failed"}) is False
+    assert coordinator._charge_action_succeeded({"errorCode": "9"}) is False
 
 
 def test_update_register_debug_state_tracks_writable_registers():

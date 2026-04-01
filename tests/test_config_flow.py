@@ -12,6 +12,8 @@ from custom_components.huawei_charger.config_flow import (
 from custom_components.huawei_charger.const import (
     CONF_ENABLE_LOGGING,
     CONF_INTERVAL,
+    CONF_STATION_DN,
+    CONF_WALLBOX_DN,
     DEFAULT_FUSIONSOLAR_HOST,
 )
 
@@ -161,6 +163,8 @@ def test_options_flow_updates_host_from_active_integration():
             CONF_INTERVAL: 60,
             CONF_VERIFY_SSL: True,
             CONF_ENABLE_LOGGING: False,
+            CONF_STATION_DN: None,
+            CONF_WALLBOX_DN: None,
         },
         title="user@example.com @ uni005eu5.fusionsolar.huawei.com",
         unique_id="user@example.com@uni005eu5.fusionsolar.huawei.com",
@@ -183,6 +187,8 @@ def test_options_schema_includes_logging_toggle():
     schema = flow._options_schema(entry)
 
     assert CONF_ENABLE_LOGGING in schema.schema
+    assert CONF_STATION_DN in schema.schema
+    assert CONF_WALLBOX_DN in schema.schema
 
 
 def test_options_flow_missing_logging_value_turns_logging_off():
@@ -232,6 +238,8 @@ def test_options_flow_missing_logging_value_turns_logging_off():
             CONF_INTERVAL: 60,
             CONF_VERIFY_SSL: True,
             CONF_ENABLE_LOGGING: False,
+            CONF_STATION_DN: None,
+            CONF_WALLBOX_DN: None,
         },
         title="user@example.com @ uni005eu5.fusionsolar.huawei.com",
         unique_id="user@example.com@uni005eu5.fusionsolar.huawei.com",
@@ -287,8 +295,69 @@ def test_options_flow_string_false_turns_logging_off():
             CONF_INTERVAL: 60,
             CONF_VERIFY_SSL: False,
             CONF_ENABLE_LOGGING: False,
+            CONF_STATION_DN: None,
+            CONF_WALLBOX_DN: None,
         },
         title="user@example.com @ uni005eu5.fusionsolar.huawei.com",
         unique_id="user@example.com@uni005eu5.fusionsolar.huawei.com",
+    )
+    assert result == {"title": "", "data": {}}
+
+
+def test_options_flow_updates_station_and_wallbox_preferences():
+    flow = HuaweiChargerOptionsFlow()
+    entry = SimpleNamespace(
+        entry_id="entry-1",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_HOST: DEFAULT_FUSIONSOLAR_HOST,
+        },
+        options={
+            CONF_INTERVAL: 30,
+            CONF_VERIFY_SSL: True,
+            CONF_ENABLE_LOGGING: False,
+        },
+        title="user@example.com @ intl.fusionsolar.huawei.com",
+        unique_id="user@example.com@intl.fusionsolar.huawei.com",
+    )
+    async_update_entry = MagicMock()
+    flow.hass = SimpleNamespace(
+        config_entries=SimpleNamespace(
+            async_get_entry=lambda entry_id: entry,
+            async_entries=lambda domain: [entry],
+            async_update_entry=async_update_entry,
+        )
+    )
+    flow._config_entry = entry
+    flow.async_create_entry = lambda title, data: {"title": title, "data": data}
+
+    result = asyncio.run(
+        flow.async_step_init(
+            {
+                CONF_HOST: DEFAULT_FUSIONSOLAR_HOST,
+                CONF_INTERVAL: 30,
+                CONF_VERIFY_SSL: True,
+                CONF_ENABLE_LOGGING: False,
+                CONF_STATION_DN: "NE=station-2",
+                CONF_WALLBOX_DN: "NE=wallbox-9",
+            }
+        )
+    )
+
+    async_update_entry.assert_called_once_with(
+        entry,
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_HOST: DEFAULT_FUSIONSOLAR_HOST,
+        },
+        options={
+            CONF_INTERVAL: 30,
+            CONF_VERIFY_SSL: True,
+            CONF_ENABLE_LOGGING: False,
+            CONF_STATION_DN: "NE=station-2",
+            CONF_WALLBOX_DN: "NE=wallbox-9",
+        },
+        title="user@example.com @ intl.fusionsolar.huawei.com",
+        unique_id="user@example.com@intl.fusionsolar.huawei.com",
     )
     assert result == {"title": "", "data": {}}

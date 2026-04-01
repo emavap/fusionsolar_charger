@@ -118,15 +118,25 @@ class HuaweiChargerControlCard extends HTMLElement {
     }
   }
 
+  _candidateEntityIds(hass = this._hass) {
+    const allEntityIds = Object.keys(this._stateMap(hass));
+    const exactMatches = allEntityIds.filter((id) => id.includes('huawei_charger'));
+    if (exactMatches.length > 0) {
+      return exactMatches;
+    }
+    return allEntityIds.filter((id) => id.includes('charger') || id.includes('huawei'));
+  }
+
   _trackedEntityIds(hass) {
     const tracked = new Set(
-      Object.keys(this._stateMap(hass)).filter(id =>
-        id.includes('huawei_charger') && (
+      this._candidateEntityIds(hass).filter(id =>
+        (
           id.includes('dynamic_power_limit') ||
           id.includes('fixed_max_charging_power') ||
           id.includes('fixed_max_power') ||
           id.includes('device_status') ||
           id.includes('charge_store') ||
+          id.includes('vehicle_connected') ||
           id.includes('plugged_in') ||
           id.includes('plugged')
         )
@@ -150,7 +160,7 @@ class HuaweiChargerControlCard extends HTMLElement {
   }
 
   _getHuaweiEntities(hass = this._hass) {
-    return Object.keys(this._stateMap(hass)).filter((id) => id.includes('huawei_charger'));
+    return this._candidateEntityIds(hass);
   }
 
   _findDynamicPowerEntity(hass = this._hass) {
@@ -171,15 +181,27 @@ class HuaweiChargerControlCard extends HTMLElement {
     ) || null;
   }
 
+  _connectedState(value) {
+    const normalized = this._normalizeStateValue(value);
+    if (['1', 'connected', 'plugged', 'plugged_in', 'true', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'off', 'disconnected', 'unplugged', 'not_connected', 'idle', 'none'].includes(normalized)) {
+      return false;
+    }
+    return null;
+  }
+
   _deriveCableStatus(currentPowerEntity, deviceStatusEntity, chargeStoreEntity, pluggedInEntity) {
     const currentPower = parseFloat(currentPowerEntity?.state);
     const deviceStatusValue = this._normalizeStateValue(deviceStatusEntity?.state);
     const chargeStoreValue = this._normalizeStateValue(chargeStoreEntity?.state);
     const pluggedInValue = this._normalizeStateValue(pluggedInEntity?.state);
-    const statusValue = deviceStatusValue || chargeStoreValue || pluggedInValue;
+    const pluggedConnectionState = this._connectedState(pluggedInValue);
+    const deviceConnectionState = this._connectedState(deviceStatusValue);
+    const chargeStoreConnectionState = this._connectedState(chargeStoreValue);
     const chargingStates = ['3', 'charging', 'active'];
     const readyStates = ['2', 'ready'];
-    const connectedStates = ['1', 'connected', 'plugged', 'true'];
 
     if (
       (Number.isFinite(currentPower) && currentPower > 0.1) ||
@@ -194,7 +216,18 @@ class HuaweiChargerControlCard extends HTMLElement {
       };
     }
 
-    if (readyStates.includes(statusValue)) {
+    if (pluggedConnectionState === false) {
+      return {
+        status: 'Disconnected',
+        icon: 'mdi:power-plug-off',
+        color: 'disconnected'
+      };
+    }
+
+    if (
+      pluggedConnectionState === true &&
+      (readyStates.includes(deviceStatusValue) || readyStates.includes(chargeStoreValue))
+    ) {
       return {
         status: 'Ready',
         icon: 'mdi:power-plug',
@@ -202,7 +235,11 @@ class HuaweiChargerControlCard extends HTMLElement {
       };
     }
 
-    if (connectedStates.includes(statusValue)) {
+    if (
+      pluggedConnectionState === true ||
+      deviceConnectionState === true ||
+      chargeStoreConnectionState === true
+    ) {
       return {
         status: 'Connected',
         icon: 'mdi:power-plug',
@@ -314,11 +351,20 @@ class HuaweiChargerControlCard extends HTMLElement {
     );
     const pluggedInEntity = this._findEntityBySuffixes(
       huaweiEntities,
-      ['plugged_in', 'plugged'],
+      ['vehicle_connected', 'plugged_in', 'plugged'],
       this.config.plugged_in_entity
     );
 
-    if (huaweiEntities.length === 0) {
+    const hasAnyResolvedEntity = [
+      dynamicEntity,
+      fixedEntity,
+      currentPowerEntity,
+      deviceStatusEntity,
+      chargeStoreEntity,
+      pluggedInEntity,
+    ].some((entity) => Boolean(entity));
+
+    if (huaweiEntities.length === 0 && !hasAnyResolvedEntity) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">

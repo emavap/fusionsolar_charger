@@ -19,7 +19,9 @@ from .const import (
     CONF_ENABLE_LOGGING,
     DOMAIN,
     CONF_INTERVAL,
+    CONF_STATION_DN,
     CONF_VERIFY_SSL,
+    CONF_WALLBOX_DN,
     DEFAULT_ENABLE_LOGGING,
     DEFAULT_FUSIONSOLAR_HOST,
     DEFAULT_REQUEST_TIMEOUT,
@@ -66,6 +68,8 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             entry.data.get(CONF_ENABLE_LOGGING, DEFAULT_ENABLE_LOGGING),
         )
         self.request_timeout = DEFAULT_REQUEST_TIMEOUT
+        self.preferred_station_dn = entry.options.get(CONF_STATION_DN, entry.data.get(CONF_STATION_DN))
+        self.preferred_wallbox_dn = entry.options.get(CONF_WALLBOX_DN, entry.data.get(CONF_WALLBOX_DN))
 
         self.token = None
         self.headers = {}
@@ -216,8 +220,15 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         
         if not data.get("data", {}).get("list"):
             raise ValueError("No stations found in account")
-        
-        station = data["data"]["list"][0]
+
+        stations = data["data"]["list"]
+        station = self._select_record(
+            stations,
+            key="dn",
+            preferred=getattr(self, "preferred_station_dn", None),
+            current=self.dn_id,
+            entity_name="station",
+        )
         self.dn_id = station["dn"]
         self.station_values = {}
         charge_store = station.get("chargeStore")
@@ -248,7 +259,14 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         if not data.get("data") or not isinstance(data["data"], list) or len(data["data"]) == 0:
             raise ValueError("No wallbox devices found in station")
 
-        wallbox = data["data"][0]
+        wallboxes = data["data"]
+        wallbox = self._select_record(
+            wallboxes,
+            key="dn",
+            preferred=getattr(self, "preferred_wallbox_dn", None),
+            current=self.wallbox_dn,
+            entity_name="wallbox",
+        )
         self.wallbox_dn = wallbox.get("dn")
         self.wallbox_dn_id = wallbox["dnId"]
         self.fetch_wallbox_config_probe()
@@ -453,8 +471,9 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                             target["operation"],
                             response_excerpt,
                         )
-                        if response.status_code == 200:
+                        if response.status_code == 200 and self._payload_succeeded(data):
                             normalized_value = self._convert_register_value(value)
+                            self.param_values[str(param_id)] = normalized_value
                             self.config_signal_values[str(param_id)] = normalized_value
                             if str(param_id) in self.config_signal_details:
                                 self.config_signal_details[str(param_id)]["value"] = normalized_value
@@ -474,6 +493,10 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                                 response_excerpt=response_excerpt,
                             )
                             return True
+                        raise FusionSolarRequestError(
+                            f"Huawei config write for {param_id} returned an unsuccessful payload",
+                            response_excerpt=response_excerpt,
+                        )
                     except AuthenticationFailed:
                         raise
                     except (FusionSolarRequestError, UpdateFailed, requests.RequestException) as err:
@@ -693,6 +716,9 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         return f"https://{self.region_ip}:32800{routes[action_name]}"
 
     def _charge_action_succeeded(self, payload) -> bool:
+        return self._payload_succeeded(payload)
+
+    def _payload_succeeded(self, payload) -> bool:
         if not isinstance(payload, dict):
             return True
 
@@ -708,6 +734,24 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             value = payload.get(key)
             if value not in (None, "", 0, "0", "0000"):
                 return False
+
+        code = payload.get("code")
+        if code not in (None, "", 0, "0", "0000"):
+            return False
+
+        result = payload.get("result")
+        if isinstance(result, bool):
+            return result
+        if isinstance(result, str):
+            lowered = result.strip().lower()
+            if lowered in {"true", "success", "succeeded", "ok"}:
+                return True
+            if lowered in {"false", "fail", "failed", "error"}:
+                return False
+        if isinstance(result, (int, float)):
+            if result == 0:
+                return True
+            return False
 
         return True
 
@@ -1264,6 +1308,39 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         normalized = (parsed.hostname or parsed.netloc or raw).strip().lower()
         return normalized or None
 
+    def _select_record(self, records, *, key, preferred=None, current=None, entity_name):
+        normalized_records = [record for record in records if isinstance(record, dict)]
+        if not normalized_records:
+            raise ValueError(f"No usable {entity_name} records returned by FusionSolar")
+
+        preferred_value = str(preferred).strip() if preferred not in (None, "") else None
+        if preferred_value:
+            for record in normalized_records:
+                if str(record.get(key)) == preferred_value:
+                    return record
+            raise ValueError(
+                f"Configured {entity_name} {key}={preferred_value} was not returned by FusionSolar"
+            )
+
+        current_value = str(current).strip() if current not in (None, "") else None
+        if current_value:
+            for record in normalized_records:
+                if str(record.get(key)) == current_value:
+                    return record
+
+        if len(normalized_records) > 1:
+            available_ids = [str(record.get(key)) for record in normalized_records if record.get(key) is not None]
+            _LOGGER.warning(
+                "Multiple Huawei charger %s records were returned; auto-selecting %s=%s. Configure %s to target a specific device. Available IDs: %s",
+                entity_name,
+                key,
+                normalized_records[0].get(key),
+                f"{CONF_STATION_DN if entity_name == 'station' else CONF_WALLBOX_DN}",
+                available_ids,
+            )
+
+        return normalized_records[0]
+
     def _derive_locale(self):
         """Derive locale string for API payloads."""
         language = (self.hass.config.language or DEFAULT_LOCALE).replace("-", "_")
@@ -1273,7 +1350,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
             region = region or lang.upper()
             return f"{lang.lower()}_{region.upper()}"
         if len(language) == 2:
-            return DEFAULT_LOCALE
+            return f"{language.lower()}_{language.upper()}"
         return DEFAULT_LOCALE
 
     def _derive_timezone_offset(self):

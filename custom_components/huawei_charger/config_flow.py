@@ -12,6 +12,8 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import (
     CONF_ENABLE_LOGGING,
     CONF_INTERVAL,
+    CONF_STATION_DN,
+    CONF_WALLBOX_DN,
     DEFAULT_ENABLE_LOGGING,
     DEFAULT_FUSIONSOLAR_HOST,
     DEFAULT_REQUEST_TIMEOUT,
@@ -39,6 +41,13 @@ DATA_SCHEMA = vol.Schema(
 
 class HuaweiChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    def _coerce_optional_string(value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
 
     @staticmethod
     def _coerce_bool(value, default: bool = False) -> bool:
@@ -368,6 +377,12 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
                         user_input.get(CONF_ENABLE_LOGGING),
                         False,
                     ),
+                    CONF_STATION_DN: HuaweiChargerConfigFlow._coerce_optional_string(
+                        user_input.get(CONF_STATION_DN)
+                    ),
+                    CONF_WALLBOX_DN: HuaweiChargerConfigFlow._coerce_optional_string(
+                        user_input.get(CONF_WALLBOX_DN)
+                    ),
                 }
                 self.hass.config_entries.async_update_entry(
                     entry,
@@ -404,6 +419,14 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
             CONF_ENABLE_LOGGING,
             entry.data.get(CONF_ENABLE_LOGGING, DEFAULT_ENABLE_LOGGING),
         )
+        current_station_dn = entry.options.get(
+            CONF_STATION_DN,
+            entry.data.get(CONF_STATION_DN, ""),
+        ) or ""
+        current_wallbox_dn = entry.options.get(
+            CONF_WALLBOX_DN,
+            entry.data.get(CONF_WALLBOX_DN, ""),
+        ) or ""
 
         return vol.Schema(
             {
@@ -413,6 +436,8 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Required(CONF_VERIFY_SSL, default=current_verify_ssl): bool,
                 vol.Required(CONF_ENABLE_LOGGING, default=current_enable_logging): bool,
+                vol.Optional(CONF_STATION_DN, default=current_station_dn): str,
+                vol.Optional(CONF_WALLBOX_DN, default=current_wallbox_dn): str,
             }
         )
 

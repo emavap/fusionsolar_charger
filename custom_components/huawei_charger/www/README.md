@@ -147,6 +147,7 @@ cards:
 | `currency` | string | `€` | Currency symbol |
 | `session_energy_entity` | string | `sensor.huawei_charger_session_energy` | Session energy entity |
 | `current_power_entity` | string | optional | Manual override for a separate live power entity, if you have one |
+| `max_session_energy` | number | optional | Battery/session capacity in kWh. Required for progress and time-to-full estimates. |
 
 ### Info Card
 | Option | Type | Default | Description |

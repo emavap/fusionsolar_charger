@@ -43,6 +43,7 @@ Common FusionSolar host values:
 After setup:
 
 - Use `Options` to change the poll interval, SSL verification, or detailed logging.
+- If your FusionSolar account exposes multiple stations or wallboxes, use `Options` to set a preferred `station_dn` and `wallbox_dn`.
 - Use `Reconfigure` to change the FusionSolar host.
 - Use `Reauthenticate` when credentials are rejected.
 

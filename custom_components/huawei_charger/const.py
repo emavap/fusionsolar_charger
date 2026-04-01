@@ -4,6 +4,8 @@ DOMAIN = "huawei_charger"
 CONF_INTERVAL = "update_interval"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_ENABLE_LOGGING = "enable_logging"
+CONF_STATION_DN = "station_dn"
+CONF_WALLBOX_DN = "wallbox_dn"
 
 DEFAULT_REQUEST_TIMEOUT = 15
 DEFAULT_LOCALE = "de_DE"

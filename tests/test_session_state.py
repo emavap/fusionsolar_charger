@@ -22,7 +22,7 @@ def test_is_connected_state_handles_common_values():
     assert is_connected_state(False) is False
     assert is_connected_state(1) is True
     assert is_connected_state(0) is False
-    assert is_connected_state("ready") is True
+    assert is_connected_state("ready") is None
     assert is_connected_state("plugged") is True
     assert is_connected_state("4") is True
     assert is_connected_state("10") is True
@@ -46,8 +46,17 @@ def test_vehicle_connected_falls_back_to_device_status():
 
     state, source = vehicle_connected_state(coordinator)
 
-    assert state is True
-    assert source == "device_status"
+    assert state is None
+    assert source is None
+
+
+def test_vehicle_connected_prefers_explicit_unplugged_register():
+    coordinator = DummyCoordinator({"20017": False, "device_status": "2"})
+
+    state, source = vehicle_connected_state(coordinator)
+
+    assert state is False
+    assert source == "20017"
 
 
 def test_vehicle_connected_returns_unknown_when_no_signal_exists():

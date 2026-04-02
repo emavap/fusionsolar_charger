@@ -299,14 +299,8 @@ def test_fetch_station_dn_prefers_configured_station():
         {
             "data": {
                 "list": [
-                    {
-                        "dn": "NE=station-1",
-                        "chargeStore": "Connected",
-                    },
-                    {
-                        "dn": "NE=station-2",
-                        "chargeStore": "Disconnected",
-                    },
+                    {"dn": "NE=station-1", "chargeStore": "Idle"},
+                    {"dn": "NE=station-2", "chargeStore": "Connected"},
                 ]
             }
         }
@@ -315,7 +309,7 @@ def test_fetch_station_dn_prefers_configured_station():
     coordinator.fetch_station_dn()
 
     assert coordinator.dn_id == "NE=station-2"
-    assert coordinator.station_values == {"charge_store": "Disconnected"}
+    assert coordinator.station_values == {"charge_store": "Connected"}
 
 
 def test_fetch_wallbox_info_falls_back_to_realtime_data():
@@ -605,7 +599,6 @@ def test_fetch_wallbox_history_probe_marks_completed(monkeypatch):
 def test_set_config_value_success(monkeypatch):
     coordinator = build_coordinator()
     coordinator.data = {"20001": 2.5}
-    coordinator.param_values = {"20001": 2.5}
     calls = []
 
     def fake_request_post(url, *, json=None, data=None, headers=None, operation=None):
@@ -629,6 +622,28 @@ def test_set_config_value_success(monkeypatch):
     assert coordinator._scheduled_calls
     assert coordinator.param_values["20001"] == 3.2
     assert coordinator.config_signal_values["20001"] == 3.2
+
+
+def test_set_config_value_rejects_error_payloads():
+    coordinator = build_coordinator()
+    coordinator.data = {"20001": 2.5}
+    sleep_calls = []
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        "custom_components.huawei_charger.coordinator.time.sleep",
+        lambda delay: sleep_calls.append(delay),
+    )
+
+    coordinator._request_post = lambda *args, **kwargs: DummyResponse({}, status_code=200)
+    coordinator._json_or_error = lambda response, context, default=None: {"errorCode": "9"}
+
+    result = coordinator.set_config_value("20001", 3.2)
+
+    monkeypatch.undo()
+
+    assert result is False
+    assert sleep_calls == [1, 2]
 
 
 def test_set_config_value_returns_error_when_new_endpoint_fails():
@@ -661,29 +676,6 @@ def test_set_config_value_returns_error_when_new_endpoint_fails():
         "set-config-new:20001",
     ]
     assert sleep_calls == [1, 2]
-
-
-def test_set_config_value_rejects_error_payloads():
-    coordinator = build_coordinator()
-    coordinator.param_values = {"20001": 2.5}
-    calls = []
-
-    def fake_request_post(url, *, json=None, data=None, headers=None, operation=None):
-        calls.append(operation)
-        return DummyResponse({"code": 1, "message": "write denied"}, status_code=200)
-
-    coordinator._request_post = fake_request_post
-
-    result = coordinator.set_config_value("20001", 3.2)
-
-    assert result is False
-    assert calls == [
-        "set-config-new:20001",
-        "set-config-new:20001",
-        "set-config-new:20001",
-    ]
-    assert coordinator.param_values["20001"] == 2.5
-    assert coordinator.config_signal_values.get("20001") is None
 
 
 def test_set_config_value_reauth_flow(monkeypatch):
@@ -779,16 +771,6 @@ def test_set_config_value_recovers_wallbox_context_after_reauth(monkeypatch):
     assert post_calls[1][0].startswith("https://5.6.7.8:32800/")
     assert post_calls[1][1] is None
     assert post_calls[1][2]["dn"] == "NE=wallbox-restored"
-
-
-def test_charge_action_succeeded_handles_huawei_code_and_result_fields():
-    coordinator = build_coordinator()
-
-    assert coordinator._charge_action_succeeded({"code": 0}) is True
-    assert coordinator._charge_action_succeeded({"result": "success"}) is True
-    assert coordinator._charge_action_succeeded({"code": 1}) is False
-    assert coordinator._charge_action_succeeded({"result": "failed"}) is False
-    assert coordinator._charge_action_succeeded({"errorCode": "9"}) is False
 
 
 def test_update_register_debug_state_tracks_writable_registers():

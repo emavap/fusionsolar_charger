@@ -139,7 +139,7 @@ def test_options_flow_updates_host_from_active_integration():
             async_update_entry=async_update_entry,
         )
     )
-    flow._config_entry = entry
+    flow.config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(
@@ -163,8 +163,6 @@ def test_options_flow_updates_host_from_active_integration():
             CONF_INTERVAL: 60,
             CONF_VERIFY_SSL: True,
             CONF_ENABLE_LOGGING: False,
-            CONF_STATION_DN: None,
-            CONF_WALLBOX_DN: None,
         },
         title="user@example.com @ uni005eu5.fusionsolar.huawei.com",
         unique_id="user@example.com@uni005eu5.fusionsolar.huawei.com",
@@ -182,7 +180,7 @@ def test_options_schema_includes_logging_toggle():
     flow.hass = SimpleNamespace(
         config_entries=SimpleNamespace(async_get_entry=lambda entry_id: entry)
     )
-    flow._config_entry = entry
+    flow.config_entry = entry
 
     schema = flow._options_schema(entry)
 
@@ -215,7 +213,7 @@ def test_options_flow_missing_logging_value_turns_logging_off():
             async_update_entry=async_update_entry,
         )
     )
-    flow._config_entry = entry
+    flow.config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(
@@ -238,8 +236,6 @@ def test_options_flow_missing_logging_value_turns_logging_off():
             CONF_INTERVAL: 60,
             CONF_VERIFY_SSL: True,
             CONF_ENABLE_LOGGING: False,
-            CONF_STATION_DN: None,
-            CONF_WALLBOX_DN: None,
         },
         title="user@example.com @ uni005eu5.fusionsolar.huawei.com",
         unique_id="user@example.com@uni005eu5.fusionsolar.huawei.com",
@@ -271,7 +267,7 @@ def test_options_flow_string_false_turns_logging_off():
             async_update_entry=async_update_entry,
         )
     )
-    flow._config_entry = entry
+    flow.config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(
@@ -295,8 +291,6 @@ def test_options_flow_string_false_turns_logging_off():
             CONF_INTERVAL: 60,
             CONF_VERIFY_SSL: False,
             CONF_ENABLE_LOGGING: False,
-            CONF_STATION_DN: None,
-            CONF_WALLBOX_DN: None,
         },
         title="user@example.com @ uni005eu5.fusionsolar.huawei.com",
         unique_id="user@example.com@uni005eu5.fusionsolar.huawei.com",
@@ -304,7 +298,7 @@ def test_options_flow_string_false_turns_logging_off():
     assert result == {"title": "", "data": {}}
 
 
-def test_options_flow_updates_station_and_wallbox_preferences():
+def test_options_flow_updates_optional_station_and_wallbox_targets():
     flow = HuaweiChargerOptionsFlow()
     entry = SimpleNamespace(
         entry_id="entry-1",
@@ -315,7 +309,7 @@ def test_options_flow_updates_station_and_wallbox_preferences():
         options={
             CONF_INTERVAL: 30,
             CONF_VERIFY_SSL: True,
-            CONF_ENABLE_LOGGING: False,
+            CONF_ENABLE_LOGGING: True,
         },
         title="user@example.com @ intl.fusionsolar.huawei.com",
         unique_id="user@example.com@intl.fusionsolar.huawei.com",
@@ -328,18 +322,18 @@ def test_options_flow_updates_station_and_wallbox_preferences():
             async_update_entry=async_update_entry,
         )
     )
-    flow._config_entry = entry
+    flow.config_entry = entry
     flow.async_create_entry = lambda title, data: {"title": title, "data": data}
 
     result = asyncio.run(
         flow.async_step_init(
             {
-                CONF_HOST: DEFAULT_FUSIONSOLAR_HOST,
-                CONF_INTERVAL: 30,
+                CONF_HOST: "uni005eu5.fusionsolar.huawei.com",
+                CONF_INTERVAL: 60,
                 CONF_VERIFY_SSL: True,
                 CONF_ENABLE_LOGGING: False,
                 CONF_STATION_DN: "NE=station-2",
-                CONF_WALLBOX_DN: "NE=wallbox-9",
+                CONF_WALLBOX_DN: "NE=wallbox-2",
             }
         )
     )
@@ -348,16 +342,16 @@ def test_options_flow_updates_station_and_wallbox_preferences():
         entry,
         data={
             CONF_USERNAME: "user@example.com",
-            CONF_HOST: DEFAULT_FUSIONSOLAR_HOST,
+            CONF_HOST: "uni005eu5.fusionsolar.huawei.com",
         },
         options={
-            CONF_INTERVAL: 30,
+            CONF_INTERVAL: 60,
             CONF_VERIFY_SSL: True,
             CONF_ENABLE_LOGGING: False,
             CONF_STATION_DN: "NE=station-2",
-            CONF_WALLBOX_DN: "NE=wallbox-9",
+            CONF_WALLBOX_DN: "NE=wallbox-2",
         },
-        title="user@example.com @ intl.fusionsolar.huawei.com",
-        unique_id="user@example.com@intl.fusionsolar.huawei.com",
+        title="user@example.com @ uni005eu5.fusionsolar.huawei.com",
+        unique_id="user@example.com@uni005eu5.fusionsolar.huawei.com",
     )
     assert result == {"title": "", "data": {}}

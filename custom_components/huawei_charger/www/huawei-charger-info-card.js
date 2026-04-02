@@ -7,7 +7,7 @@ class HuaweiChargerInfoCard extends HTMLElement {
 
   setConfig(config) {
     this.config = {
-      show_diagnostic: config?.show_diagnostic !== false,
+      show_diagnostic: config.show_diagnostic !== false,
       ...config
     };
   }
@@ -18,13 +18,13 @@ class HuaweiChargerInfoCard extends HTMLElement {
     
     // Always render on first load
     if (!oldHass) {
-      this._renderSafely();
+      this.render();
       return;
     }
     
     // Check if relevant entity states have changed
     if (this._hasEntityStatesChanged(hass, oldHass)) {
-      this._renderSafely();
+      this.render();
     }
   }
 
@@ -59,51 +59,17 @@ class HuaweiChargerInfoCard extends HTMLElement {
     return null;
   }
 
-  _stateMap(hass = this._hass) {
-    return hass?.states || {};
-  }
-
-  _renderSafely() {
-    try {
-      this.render();
-    } catch (error) {
-      console.error('Huawei charger info card render failed:', error);
-      if (!this.shadowRoot) {
-        return;
-      }
-      this.shadowRoot.innerHTML = `
-        <ha-card>
-          <div class="card-content">
-            <div class="error">
-              <h3>Card temporarily unavailable</h3>
-              <p>The Huawei Charger info card hit a transient frontend state. Refresh the dashboard if this persists.</p>
-            </div>
-          </div>
-        </ha-card>
-      `;
-    }
-  }
-
   _parseNumber(value) {
     const parsed = parseFloat(value);
     return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  _candidateEntityIds(hass = this._hass) {
-    const allEntityIds = Object.keys(this._stateMap(hass));
-    const exactMatches = allEntityIds.filter((id) => id.includes('huawei_charger'));
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-    return allEntityIds.filter((id) => id.includes('charger') || id.includes('huawei'));
   }
 
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
     
     // Get current device info entities
-    const huaweiEntities = this._candidateEntityIds(hass).filter(id =>
-      (
+    const huaweiEntities = Object.keys(hass.states).filter(id => 
+      id.includes('huawei_charger') && (
         id.includes('device_name') ||
         id.includes('alias') ||
         id.includes('esn') ||
@@ -128,8 +94,8 @@ class HuaweiChargerInfoCard extends HTMLElement {
     
     // Check if any relevant entity states changed by comparing with previous hass
     for (const entityId of huaweiEntities) {
-      const currentState = this._stateMap(hass)[entityId];
-      const previousState = this._stateMap(oldHass)[entityId];
+      const currentState = hass.states[entityId];
+      const previousState = oldHass.states[entityId];
       
       if (!currentState && !previousState) continue; // Both don't exist
       if (!currentState || !previousState) return true; // One exists, one doesn't
@@ -147,7 +113,9 @@ class HuaweiChargerInfoCard extends HTMLElement {
     if (!this._hass) return;
 
     // Auto-detect device info entities
-    const huaweiEntities = this._candidateEntityIds();
+    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
+      id.includes('huawei_charger')
+    );
     
     // Get device info entities
     const deviceName = this._findEntityBySuffixes(huaweiEntities, ['device_name', 'alias']);

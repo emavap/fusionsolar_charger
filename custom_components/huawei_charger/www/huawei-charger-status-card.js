@@ -23,13 +23,13 @@ class HuaweiChargerStatusCard extends HTMLElement {
     
     // Always render on first load
     if (!oldHass) {
-      this._renderSafely();
+      this.render();
       return;
     }
     
     // Check if relevant entity states have changed
     if (this._hasEntityStatesChanged(hass, oldHass)) {
-      this._renderSafely();
+      this.render();
     }
   }
 
@@ -71,40 +71,6 @@ class HuaweiChargerStatusCard extends HTMLElement {
     return null;
   }
 
-  _stateMap(hass = this._hass) {
-    return hass?.states || {};
-  }
-
-  _renderSafely() {
-    try {
-      this.render();
-    } catch (error) {
-      console.error('Huawei charger status card render failed:', error);
-      if (!this.shadowRoot) {
-        return;
-      }
-      this.shadowRoot.innerHTML = `
-        <ha-card>
-          <div class="card-content">
-            <div class="error">
-              <h3>Card temporarily unavailable</h3>
-              <p>The Huawei Charger status card hit a transient frontend state. Refresh the dashboard if this persists.</p>
-            </div>
-          </div>
-        </ha-card>
-      `;
-    }
-  }
-
-  _candidateEntityIds(hass = this._hass) {
-    const allEntityIds = Object.keys(this._stateMap(hass));
-    const exactMatches = allEntityIds.filter((id) => id.includes('huawei_charger'));
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-    return allEntityIds.filter((id) => id.includes('charger') || id.includes('huawei'));
-  }
-
   _parseNumericState(entity) {
     const parsed = parseFloat(entity?.state);
     return Number.isFinite(parsed) ? parsed : null;
@@ -112,8 +78,8 @@ class HuaweiChargerStatusCard extends HTMLElement {
 
   _energyEntityIds(hass = this._hass) {
     const tracked = new Set(
-      this._candidateEntityIds(hass).filter(id =>
-        (
+      Object.keys(hass?.states || {}).filter(id =>
+        id.includes('huawei_charger') && (
           id.includes('session_energy') ||
           id.includes('total_energy_charged') ||
           id.includes('total_energy')
@@ -141,13 +107,13 @@ class HuaweiChargerStatusCard extends HTMLElement {
     const remainingMs = this._chargingActivityWindowMs - (Date.now() - this._lastChargingActivityAt);
     if (remainingMs <= 0) {
       this._lastChargingActivityAt = 0;
-      this._renderSafely();
+      this.render();
       return;
     }
 
     this._chargingActivityTimer = window.setTimeout(() => {
       this._chargingActivityTimer = null;
-      this._renderSafely();
+      this.render();
     }, remainingMs + 250);
   }
 
@@ -175,14 +141,13 @@ class HuaweiChargerStatusCard extends HTMLElement {
 
   _trackedEntityIds(hass) {
     const tracked = new Set(
-      this._candidateEntityIds(hass).filter(id =>
-        (
+      Object.keys(hass.states).filter(id =>
+        id.includes('huawei_charger') && (
           id.includes('session_energy') ||
           id.includes('total_energy_charged') ||
           id.includes('total_energy') ||
           id.includes('device_status') ||
           id.includes('charge_store') ||
-          id.includes('vehicle_connected') ||
           id.includes('plugged_in') ||
           id.includes('plugged') ||
           id.includes('dynamic_power_limit')
@@ -206,26 +171,14 @@ class HuaweiChargerStatusCard extends HTMLElement {
     return [...tracked];
   }
 
-  _connectedState(value) {
-    const normalized = this._normalizeStateValue(value);
-    if (['1', 'connected', 'plugged', 'plugged_in', 'true', 'on'].includes(normalized)) {
-      return true;
-    }
-    if (['0', 'false', 'off', 'disconnected', 'unplugged', 'not_connected', 'idle', 'none'].includes(normalized)) {
-      return false;
-    }
-    return null;
-  }
-
   _deriveConnectionState(deviceStatus, chargeStore, pluggedIn, power, chargingActivityDetected) {
     const deviceStatusState = this._normalizeStateValue(deviceStatus?.state);
     const chargeStoreState = this._normalizeStateValue(chargeStore?.state);
     const pluggedState = this._normalizeStateValue(pluggedIn?.state);
-    const pluggedConnectionState = this._connectedState(pluggedState);
-    const deviceConnectionState = this._connectedState(deviceStatusState);
-    const chargeStoreConnectionState = this._connectedState(chargeStoreState);
+    const statusState = deviceStatusState || chargeStoreState || pluggedState;
     const chargingStates = ['3', 'charging', 'active'];
     const readyStates = ['2', 'ready'];
+    const connectedStates = ['1', 'connected', 'plugged', 'true'];
 
     if (
       chargingActivityDetected ||
@@ -243,39 +196,12 @@ class HuaweiChargerStatusCard extends HTMLElement {
       };
     }
 
-    if (pluggedConnectionState === false) {
+    if (readyStates.includes(statusState) || connectedStates.includes(statusState)) {
       return {
         isCharging: false,
-        statusText: 'Idle',
-        connectionText: 'Disconnected',
-        statusColor: '#9E9E9E',
-        statusIcon: 'mdi:ev-station'
-      };
-    }
-
-    if (
-      pluggedConnectionState === true &&
-      (readyStates.includes(deviceStatusState) || readyStates.includes(chargeStoreState))
-    ) {
-      return {
-        isCharging: false,
-        statusText: 'Ready',
-        connectionText: 'Connected',
-        statusColor: '#FF9800',
-        statusIcon: 'mdi:power-plug'
-      };
-    }
-
-    if (
-      pluggedConnectionState === true ||
-      deviceConnectionState === true ||
-      chargeStoreConnectionState === true
-    ) {
-      return {
-        isCharging: false,
-        statusText: 'Connected',
-        connectionText: 'Connected',
-        statusColor: '#2196F3',
+        statusText: readyStates.includes(statusState) ? 'Ready' : 'Connected',
+        connectionText: 'Idle',
+        statusColor: readyStates.includes(statusState) ? '#FF9800' : '#2196F3',
         statusIcon: 'mdi:power-plug'
       };
     }
@@ -296,8 +222,8 @@ class HuaweiChargerStatusCard extends HTMLElement {
 
     // Check if any relevant entity states changed by comparing with previous hass
     for (const entityId of trackedEntities) {
-      const currentState = this._stateMap(hass)[entityId];
-      const previousState = this._stateMap(oldHass)[entityId];
+      const currentState = hass.states[entityId];
+      const previousState = oldHass.states[entityId];
       
       if (!currentState && !previousState) continue; // Both don't exist
       if (!currentState || !previousState) return true; // One exists, one doesn't
@@ -315,7 +241,9 @@ class HuaweiChargerStatusCard extends HTMLElement {
     if (!this._hass) return;
 
     // Auto-detect available entities by searching for Huawei Charger entities
-    const huaweiEntities = this._candidateEntityIds();
+    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
+      id.includes('huawei_charger')
+    );
     
     const currentPower = this.config.current_power_entity
       ? this._findEntityBySuffixes(huaweiEntities, [], this.config.current_power_entity)
@@ -337,7 +265,7 @@ class HuaweiChargerStatusCard extends HTMLElement {
     );
     const pluggedIn = this._findEntityBySuffixes(
       huaweiEntities,
-      ['vehicle_connected', 'plugged_in', 'plugged'],
+      ['plugged_in', 'plugged'],
       this.config.plugged_in_entity
     );
     const dynamicPowerLimit = this._findEntityBySuffixes(
@@ -347,18 +275,9 @@ class HuaweiChargerStatusCard extends HTMLElement {
     );
     
     // If no Huawei entities found, show helpful message with debugging info
-    const hasAnyResolvedEntity = [
-      currentPower,
-      sessionEnergy,
-      deviceStatus,
-      chargeStore,
-      pluggedIn,
-      dynamicPowerLimit,
-    ].some((entity) => Boolean(entity));
-
-    if (huaweiEntities.length === 0 && !hasAnyResolvedEntity) {
+    if (huaweiEntities.length === 0) {
       // Show all entities for debugging
-      const allEntities = Object.keys(this._stateMap()).filter(id =>
+      const allEntities = Object.keys(this._hass.states).filter(id => 
         id.includes('charger') || id.includes('huawei')
       );
       

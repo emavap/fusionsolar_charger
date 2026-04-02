@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import timedelta, datetime, timezone
+from datetime import timedelta, datetime
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 import asyncio
@@ -220,7 +220,7 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         
         if not data.get("data", {}).get("list"):
             raise ValueError("No stations found in account")
-
+        
         stations = data["data"]["list"]
         station = self._select_record(
             stations,
@@ -570,234 +570,6 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
                 _LOGGER.error("Failed to set config %s after %s attempts", param_id, retries)
 
         return False
-
-    def query_charge_process_data(self, gun_number: int = 1):
-        """Return live charging session metadata for a charger gun."""
-        self._ensure_device_context()
-        if not self.wallbox_dn_id:
-            self.fetch_wallbox_info()
-
-        url = f"https://{self.region_ip}:32800/rest/neteco/web/homemgr/v1/charger/device/query-process-data"
-        payload = {
-            "dnId": self.wallbox_dn_id,
-            "gunNumber": int(gun_number),
-        }
-        response = self._request_post(
-            url,
-            json=payload,
-            headers=self.headers,
-            operation="charger-query-process-data",
-        )
-        data = self._json_or_error(response, "charger-query-process-data", default={})
-        self._debug_log(
-            "Charge process data response gun=%s payload=%s",
-            gun_number,
-            self._json_dump(data),
-        )
-
-        records = data.get("data")
-        if isinstance(records, list):
-            return records[0] if records else {}
-        if isinstance(records, dict):
-            return records
-        return data if isinstance(data, dict) else {}
-
-    def start_charge(self, *, gun_number: int = 1, account_id=None, retries: int = 3) -> bool:
-        """Start a charging session through the FusionSolar cloud API."""
-        return self._run_charge_action(
-            action_name="start_charge",
-            payload_factory=lambda: self._build_start_charge_payload(
-                gun_number=gun_number,
-                account_id=account_id,
-            ),
-            retries=retries,
-        )
-
-    def stop_charge(
-        self,
-        *,
-        gun_number: int = 1,
-        order_number=None,
-        serial_number=None,
-        retries: int = 3,
-    ) -> bool:
-        """Stop a charging session through the FusionSolar cloud API."""
-        return self._run_charge_action(
-            action_name="stop_charge",
-            payload_factory=lambda: self._build_stop_charge_payload(
-                gun_number=gun_number,
-                order_number=order_number,
-                serial_number=serial_number,
-            ),
-            retries=retries,
-        )
-
-    def _run_charge_action(self, *, action_name: str, payload_factory, retries: int) -> bool:
-        action_started = time.monotonic()
-        self._record_write_debug(
-            status="pending",
-            param_id=action_name,
-            value=None,
-            attempts=0,
-        )
-
-        for attempt in range(retries):
-            try:
-                payload = payload_factory()
-                response = self._request_post(
-                    self._charger_action_url(action_name),
-                    json=payload,
-                    headers=self.headers,
-                    operation=f"charger-{action_name}",
-                )
-                data = self._json_or_error(
-                    response,
-                    f"charger-{action_name}",
-                    default={},
-                )
-                response_excerpt = self._json_dump(data)
-                self._debug_log(
-                    "Charge action %s payload=%s response=%s",
-                    action_name,
-                    self._json_dump(payload),
-                    response_excerpt,
-                )
-                if not self._charge_action_succeeded(data):
-                    raise FusionSolarRequestError(
-                        f"Huawei charger {action_name} returned an unsuccessful payload",
-                        response_excerpt=response_excerpt,
-                    )
-                self._record_write_debug(
-                    status="success",
-                    param_id=action_name,
-                    value=self._debug_repr(payload),
-                    attempts=attempt + 1,
-                    duration_ms=self._elapsed_ms(action_started),
-                    response_excerpt=response_excerpt,
-                )
-                return True
-            except AuthenticationFailed as err:
-                self._reset_auth_state()
-                self._record_write_debug(
-                    status="retrying" if attempt < retries - 1 else "error",
-                    param_id=action_name,
-                    value=None,
-                    error=str(err),
-                    attempts=attempt + 1,
-                    duration_ms=self._elapsed_ms(action_started),
-                    response_excerpt=getattr(err, "response_excerpt", None),
-                )
-                if attempt < retries - 1:
-                    continue
-            except Exception as err:
-                response_excerpt = getattr(err, "response_excerpt", None)
-                self._record_write_debug(
-                    status="retrying" if attempt < retries - 1 else "error",
-                    param_id=action_name,
-                    value=None,
-                    error=str(err),
-                    attempts=attempt + 1,
-                    duration_ms=self._elapsed_ms(action_started),
-                    response_excerpt=response_excerpt,
-                )
-                if attempt < retries - 1:
-                    time.sleep(2 ** attempt)
-                    continue
-                _LOGGER.error("Huawei charger %s failed after %s attempts: %s", action_name, retries, err)
-                return False
-
-        return False
-
-    def _charger_action_url(self, action_name: str) -> str:
-        routes = {
-            "start_charge": "/rest/neteco/web/homemgr/v1/charger/charge/start-charge",
-            "stop_charge": "/rest/neteco/web/homemgr/v1/charger/charge/stop-charge",
-        }
-        return f"https://{self.region_ip}:32800{routes[action_name]}"
-
-    def _charge_action_succeeded(self, payload) -> bool:
-        return self._payload_succeeded(payload)
-
-    def _payload_succeeded(self, payload) -> bool:
-        if not isinstance(payload, dict):
-            return True
-
-        success = payload.get("success")
-        if isinstance(success, bool):
-            return success
-        if isinstance(success, str):
-            lowered = success.strip().lower()
-            if lowered in {"true", "false"}:
-                return lowered == "true"
-
-        for key in ("failCode", "errorCode"):
-            value = payload.get(key)
-            if value not in (None, "", 0, "0", "0000"):
-                return False
-
-        code = payload.get("code")
-        if code not in (None, "", 0, "0", "0000"):
-            return False
-
-        result = payload.get("result")
-        if isinstance(result, bool):
-            return result
-        if isinstance(result, str):
-            lowered = result.strip().lower()
-            if lowered in {"true", "success", "succeeded", "ok"}:
-                return True
-            if lowered in {"false", "fail", "failed", "error"}:
-                return False
-        if isinstance(result, (int, float)):
-            if result == 0:
-                return True
-            return False
-
-        return True
-
-    def _build_start_charge_payload(self, *, gun_number: int, account_id):
-        self._ensure_device_context()
-        if not self.wallbox_dn_id:
-            self.fetch_wallbox_info()
-
-        payload = {
-            "dnId": self.wallbox_dn_id,
-            "gunNumber": int(gun_number),
-        }
-        if account_id not in (None, ""):
-            payload["accountId"] = account_id
-        return payload
-
-    def _build_stop_charge_payload(self, *, gun_number: int, order_number, serial_number):
-        self._ensure_device_context()
-        if not self.wallbox_dn_id:
-            self.fetch_wallbox_info()
-
-        payload = {
-            "dnId": self.wallbox_dn_id,
-            "gunNumber": int(gun_number),
-        }
-        if order_number not in (None, ""):
-            payload["orderNumber"] = str(order_number)
-        if serial_number not in (None, ""):
-            payload["serialNumber"] = str(serial_number)
-
-        if "orderNumber" not in payload or "serialNumber" not in payload:
-            process_data = self.query_charge_process_data(gun_number=gun_number)
-            discovered_order = process_data.get("orderNumber")
-            discovered_serial = process_data.get("serialNumber")
-            if "orderNumber" not in payload and discovered_order not in (None, ""):
-                payload["orderNumber"] = str(discovered_order)
-            if "serialNumber" not in payload and discovered_serial not in (None, ""):
-                payload["serialNumber"] = str(discovered_serial)
-
-        missing = [field for field in ("orderNumber", "serialNumber") if field not in payload]
-        if missing:
-            raise ValueError(
-                "Unable to stop charging because the active session metadata is incomplete: "
-                + ", ".join(missing)
-            )
-        return payload
 
     def _set_config_targets(self, param_id, value):
         change_values = [{"id": str(param_id), "value": str(value)}]
@@ -1341,6 +1113,41 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
 
         return normalized_records[0]
 
+    def _payload_succeeded(self, payload) -> bool:
+        if not isinstance(payload, dict):
+            return True
+
+        success = payload.get("success")
+        if isinstance(success, bool):
+            return success
+        if isinstance(success, str):
+            lowered = success.strip().lower()
+            if lowered in {"true", "false"}:
+                return lowered == "true"
+
+        for key in ("failCode", "errorCode"):
+            value = payload.get(key)
+            if value not in (None, "", 0, "0", "0000"):
+                return False
+
+        code = payload.get("code")
+        if code not in (None, "", 0, "0", "0000"):
+            return False
+
+        result = payload.get("result")
+        if isinstance(result, bool):
+            return result
+        if isinstance(result, str):
+            lowered = result.strip().lower()
+            if lowered in {"true", "success", "succeeded", "ok"}:
+                return True
+            if lowered in {"false", "fail", "failed", "error"}:
+                return False
+        if isinstance(result, (int, float)):
+            return result == 0
+
+        return True
+
     def _derive_locale(self):
         """Derive locale string for API payloads."""
         language = (self.hass.config.language or DEFAULT_LOCALE).replace("-", "_")
@@ -1607,4 +1414,4 @@ class HuaweiChargerCoordinator(DataUpdateCoordinator):
         return round((time.monotonic() - started) * 1000)
 
     def _utc_timestamp(self):
-        return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        return datetime.utcnow().isoformat(timespec="seconds") + "Z"

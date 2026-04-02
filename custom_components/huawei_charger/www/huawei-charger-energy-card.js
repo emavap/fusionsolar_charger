@@ -20,13 +20,13 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     
     // Always render on first load
     if (!oldHass) {
-      this._renderSafely();
+      this.render();
       return;
     }
     
     // Check if relevant entity states have changed
     if (this._hasEntityStatesChanged(hass, oldHass)) {
-      this._renderSafely();
+      this.render();
     }
   }
 
@@ -61,44 +61,10 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     return null;
   }
 
-  _stateMap(hass = this._hass) {
-    return hass?.states || {};
-  }
-
-  _renderSafely() {
-    try {
-      this.render();
-    } catch (error) {
-      console.error('Huawei charger energy card render failed:', error);
-      if (!this.shadowRoot) {
-        return;
-      }
-      this.shadowRoot.innerHTML = `
-        <ha-card>
-          <div class="card-content">
-            <div class="error">
-              <h3>Card temporarily unavailable</h3>
-              <p>The Huawei Charger energy card hit a transient frontend state. Refresh the dashboard if this persists.</p>
-            </div>
-          </div>
-        </ha-card>
-      `;
-    }
-  }
-
-  _candidateEntityIds(hass = this._hass) {
-    const allEntityIds = Object.keys(this._stateMap(hass));
-    const exactMatches = allEntityIds.filter((id) => id.includes('huawei_charger'));
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-    return allEntityIds.filter((id) => id.includes('charger') || id.includes('huawei'));
-  }
-
   _trackedEntityIds(hass) {
     const tracked = new Set(
-      this._candidateEntityIds(hass).filter(id =>
-        (
+      Object.keys(hass.states).filter(id =>
+        id.includes('huawei_charger') && (
           id.includes('session_energy') ||
           id.includes('session_duration') ||
           id.includes('total_energy') ||
@@ -131,8 +97,8 @@ class HuaweiChargerEnergyCard extends HTMLElement {
 
     // Check if any relevant entity states changed by comparing with previous hass
     for (const entityId of trackedEntities) {
-      const currentState = this._stateMap(hass)[entityId];
-      const previousState = this._stateMap(oldHass)[entityId];
+      const currentState = hass.states[entityId];
+      const previousState = oldHass.states[entityId];
       
       if (!currentState && !previousState) continue; // Both don't exist
       if (!currentState || !previousState) return true; // One exists, one doesn't
@@ -150,7 +116,9 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     if (!this._hass) return;
 
     // Auto-detect energy monitoring entities
-    const huaweiEntities = this._candidateEntityIds();
+    const huaweiEntities = Object.keys(this._hass.states).filter(id => 
+      id.includes('huawei_charger')
+    );
     
     const sessionEnergyEntity = this._findEntityBySuffixes(
       huaweiEntities,
@@ -181,16 +149,7 @@ class HuaweiChargerEnergyCard extends HTMLElement {
       this.config.rated_power_entity
     );
     
-    const hasAnyResolvedEntity = [
-      sessionEnergyEntity,
-      sessionDurationEntity,
-      totalEnergyEntity,
-      currentPowerEntity,
-      dynamicLimitEntity,
-      ratedPowerEntity,
-    ].some((entity) => Boolean(entity));
-
-    if (huaweiEntities.length === 0 && !hasAnyResolvedEntity) {
+    if (huaweiEntities.length === 0) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
@@ -236,9 +195,8 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     const configMax = safeParse(this.config?.max_session_energy, NaN);
     const dynamicMaxAttr = safeParse(dynamicLimitEntity?.attributes?.max, NaN);
     const ratedPower = safeParse(ratedPowerEntity?.state, NaN);
-    const sessionCapacity = Number.isFinite(configMax) && configMax > 0 ? configMax : null;
-    const powerCapacityCandidates = [dynamicMaxAttr, ratedPower, 7.4];
-    const powerCapacity = powerCapacityCandidates.find(value => Number.isFinite(value) && value > 0) || 7.4;
+    const capacityCandidates = [configMax, dynamicMaxAttr, ratedPower, 7.4];
+    const sessionCapacity = capacityCandidates.find(value => Number.isFinite(value) && value > 0) || 7.4;
 
     // Calculate session metrics
     const sessionCost = sessionEnergy * this.config.energy_cost;
@@ -248,20 +206,14 @@ class HuaweiChargerEnergyCard extends HTMLElement {
     const sessionHours = Math.floor(sessionDuration / 60);
     const sessionMinutes = Math.floor(sessionDuration % 60);
 
-    const remainingEnergy = sessionCapacity !== null
-      ? Math.max(sessionCapacity - sessionEnergy, 0)
-      : null;
-    const estimatedTimeToFull = sessionCapacity !== null && currentPower > 0
-      ? (remainingEnergy / currentPower) * 60
-      : 0;
+    const remainingEnergy = Math.max(sessionCapacity - sessionEnergy, 0);
+    const estimatedTimeToFull = currentPower > 0 ? (remainingEnergy / currentPower) * 60 : 0;
     const estHours = Math.floor(estimatedTimeToFull / 60);
     const estMinutes = Math.floor(estimatedTimeToFull % 60);
 
-    const sessionProgress = sessionCapacity !== null && sessionCapacity > 0
-      ? (sessionEnergy / sessionCapacity) * 100
-      : 0;
-    const powerUsagePercent = powerCapacity > 0 && currentPower > 0
-      ? Math.min(Math.max((currentPower / powerCapacity) * 100, 0), 999)
+    const sessionProgress = sessionCapacity > 0 ? (sessionEnergy / sessionCapacity) * 100 : 0;
+    const powerUsagePercent = sessionCapacity > 0 && currentPower > 0
+      ? Math.min(Math.max((currentPower / sessionCapacity) * 100, 0), 999)
       : 0;
     const energyItems = [];
 
@@ -482,7 +434,7 @@ class HuaweiChargerEnergyCard extends HTMLElement {
                     <span class="stat-value cost-highlight">${this.config.currency}${sessionCost.toFixed(2)}</span>
                   </div>
                 ` : ''}
-                ${sessionCapacity !== null && hasCurrentPower && currentPower > 0 && estimatedTimeToFull > 0 ? `
+                ${hasCurrentPower && currentPower > 0 && estimatedTimeToFull > 0 ? `
                   <div class="stat-item">
                     <span class="stat-label">Est. Full Time:</span>
                     <span class="stat-value">${estHours}h ${estMinutes}m</span>
@@ -494,7 +446,7 @@ class HuaweiChargerEnergyCard extends HTMLElement {
 
           ${(hasSessionEnergy || (hasSessionEnergy && hasSessionDuration) || hasCurrentPower) ? `
             <div class="power-trend">
-              ${sessionCapacity !== null && hasSessionEnergy ? `
+              ${hasSessionEnergy ? `
                 <div class="trend-item">
                   <div class="trend-value">${sessionProgress.toFixed(0)}%</div>
                   <div class="trend-label">Battery Progress</div>

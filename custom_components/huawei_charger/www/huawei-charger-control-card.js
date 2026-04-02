@@ -4,8 +4,6 @@ class HuaweiChargerControlCard extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._lastEntityStates = {};
     this._isUpdating = false;
-    this._isSessionActionPending = false;
-    this._pendingSessionAction = null;
     this._pendingValue = null;
     this._ignoreUpdatesUntil = null;
   }
@@ -20,7 +18,7 @@ class HuaweiChargerControlCard extends HTMLElement {
     
     // Always render on first load
     if (!oldHass) {
-      this._renderSafely();
+      this.render();
       return;
     }
     
@@ -36,7 +34,7 @@ class HuaweiChargerControlCard extends HTMLElement {
           this._pendingValue = null;
           this._ignoreUpdatesUntil = null;
           this._isUpdating = false;
-          this._renderSafely();
+          this.render();
           return;
         }
       }
@@ -58,12 +56,12 @@ class HuaweiChargerControlCard extends HTMLElement {
         }
       }
       
-      this._renderSafely();
+      this.render();
     }
   }
 
   getCardSize() {
-    return 5;
+    return 4;
   }
 
   _normalizeStateValue(value) {
@@ -93,50 +91,15 @@ class HuaweiChargerControlCard extends HTMLElement {
     return null;
   }
 
-  _stateMap(hass = this._hass) {
-    return hass?.states || {};
-  }
-
-  _renderSafely() {
-    try {
-      this.render();
-    } catch (error) {
-      console.error('Huawei charger control card render failed:', error);
-      if (!this.shadowRoot) {
-        return;
-      }
-      this.shadowRoot.innerHTML = `
-        <ha-card>
-          <div class="card-content">
-            <div class="error">
-              <h3>Card temporarily unavailable</h3>
-              <p>The Huawei Charger card hit a transient frontend state. Refresh the dashboard if this persists.</p>
-            </div>
-          </div>
-        </ha-card>
-      `;
-    }
-  }
-
-  _candidateEntityIds(hass = this._hass) {
-    const allEntityIds = Object.keys(this._stateMap(hass));
-    const exactMatches = allEntityIds.filter((id) => id.includes('huawei_charger'));
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-    return allEntityIds.filter((id) => id.includes('charger') || id.includes('huawei'));
-  }
-
   _trackedEntityIds(hass) {
     const tracked = new Set(
-      this._candidateEntityIds(hass).filter(id =>
-        (
+      Object.keys(hass.states).filter(id =>
+        id.includes('huawei_charger') && (
           id.includes('dynamic_power_limit') ||
           id.includes('fixed_max_charging_power') ||
           id.includes('fixed_max_power') ||
           id.includes('device_status') ||
           id.includes('charge_store') ||
-          id.includes('vehicle_connected') ||
           id.includes('plugged_in') ||
           id.includes('plugged')
         )
@@ -160,7 +123,7 @@ class HuaweiChargerControlCard extends HTMLElement {
   }
 
   _getHuaweiEntities(hass = this._hass) {
-    return this._candidateEntityIds(hass);
+    return Object.keys(hass?.states || {}).filter((id) => id.includes('huawei_charger'));
   }
 
   _findDynamicPowerEntity(hass = this._hass) {
@@ -181,27 +144,15 @@ class HuaweiChargerControlCard extends HTMLElement {
     ) || null;
   }
 
-  _connectedState(value) {
-    const normalized = this._normalizeStateValue(value);
-    if (['1', 'connected', 'plugged', 'plugged_in', 'true', 'on'].includes(normalized)) {
-      return true;
-    }
-    if (['0', 'false', 'off', 'disconnected', 'unplugged', 'not_connected', 'idle', 'none'].includes(normalized)) {
-      return false;
-    }
-    return null;
-  }
-
   _deriveCableStatus(currentPowerEntity, deviceStatusEntity, chargeStoreEntity, pluggedInEntity) {
     const currentPower = parseFloat(currentPowerEntity?.state);
     const deviceStatusValue = this._normalizeStateValue(deviceStatusEntity?.state);
     const chargeStoreValue = this._normalizeStateValue(chargeStoreEntity?.state);
     const pluggedInValue = this._normalizeStateValue(pluggedInEntity?.state);
-    const pluggedConnectionState = this._connectedState(pluggedInValue);
-    const deviceConnectionState = this._connectedState(deviceStatusValue);
-    const chargeStoreConnectionState = this._connectedState(chargeStoreValue);
+    const statusValue = deviceStatusValue || chargeStoreValue || pluggedInValue;
     const chargingStates = ['3', 'charging', 'active'];
     const readyStates = ['2', 'ready'];
+    const connectedStates = ['1', 'connected', 'plugged', 'true'];
 
     if (
       (Number.isFinite(currentPower) && currentPower > 0.1) ||
@@ -216,18 +167,7 @@ class HuaweiChargerControlCard extends HTMLElement {
       };
     }
 
-    if (pluggedConnectionState === false) {
-      return {
-        status: 'Disconnected',
-        icon: 'mdi:power-plug-off',
-        color: 'disconnected'
-      };
-    }
-
-    if (
-      pluggedConnectionState === true &&
-      (readyStates.includes(deviceStatusValue) || readyStates.includes(chargeStoreValue))
-    ) {
+    if (readyStates.includes(statusValue)) {
       return {
         status: 'Ready',
         icon: 'mdi:power-plug',
@@ -235,11 +175,7 @@ class HuaweiChargerControlCard extends HTMLElement {
       };
     }
 
-    if (
-      pluggedConnectionState === true ||
-      deviceConnectionState === true ||
-      chargeStoreConnectionState === true
-    ) {
+    if (connectedStates.includes(statusValue)) {
       return {
         status: 'Connected',
         icon: 'mdi:power-plug',
@@ -254,44 +190,6 @@ class HuaweiChargerControlCard extends HTMLElement {
     };
   }
 
-  _hasService(domain, service) {
-    return Boolean(this._hass?.services?.[domain]?.[service]);
-  }
-
-  _deriveSessionActions(cableState) {
-    const status = cableState?.status || 'Unknown';
-    const startAvailable = this._hasService('huawei_charger', 'start_charge');
-    const stopAvailable = this._hasService('huawei_charger', 'stop_charge');
-    const canStart = startAvailable && ['Ready', 'Connected'].includes(status) && !this._isSessionActionPending;
-    const canStop = stopAvailable && status === 'Charging' && !this._isSessionActionPending;
-
-    return {
-      show: startAvailable || stopAvailable,
-      canStart,
-      canStop,
-      busy: this._isSessionActionPending,
-      busyAction: this._pendingSessionAction,
-    };
-  }
-
-  _buildSessionServiceData(action) {
-    const data = {
-      gun_number: Number.isFinite(Number(this.config.gun_number))
-        ? Number(this.config.gun_number)
-        : 1,
-    };
-
-    if (this.config.entry_id) {
-      data.entry_id = this.config.entry_id;
-    }
-
-    if (action === 'start_charge' && this.config.account_id !== undefined) {
-      data.account_id = this.config.account_id;
-    }
-
-    return data;
-  }
-
   _hasEntityStatesChanged(hass, oldHass) {
     if (!hass || !oldHass) return false;
 
@@ -299,8 +197,8 @@ class HuaweiChargerControlCard extends HTMLElement {
 
     // Check if any relevant entity states changed by comparing with previous hass
     for (const entityId of trackedEntities) {
-      const currentState = this._stateMap(hass)[entityId];
-      const previousState = this._stateMap(oldHass)[entityId];
+      const currentState = hass.states[entityId];
+      const previousState = oldHass.states[entityId];
       
       if (!currentState && !previousState) continue; // Both don't exist
       if (!currentState || !previousState) return true; // One exists, one doesn't
@@ -311,8 +209,8 @@ class HuaweiChargerControlCard extends HTMLElement {
       }
       
       // Compare key attributes that affect the display
-      const currentAttrs = currentState.attributes || {};
-      const previousAttrs = previousState.attributes || {};
+      const currentAttrs = currentState.attributes;
+      const previousAttrs = previousState.attributes;
       
       if (currentAttrs.min !== previousAttrs.min ||
           currentAttrs.max !== previousAttrs.max ||
@@ -351,20 +249,11 @@ class HuaweiChargerControlCard extends HTMLElement {
     );
     const pluggedInEntity = this._findEntityBySuffixes(
       huaweiEntities,
-      ['vehicle_connected', 'plugged_in', 'plugged'],
+      ['plugged_in', 'plugged'],
       this.config.plugged_in_entity
     );
 
-    const hasAnyResolvedEntity = [
-      dynamicEntity,
-      fixedEntity,
-      currentPowerEntity,
-      deviceStatusEntity,
-      chargeStoreEntity,
-      pluggedInEntity,
-    ].some((entity) => Boolean(entity));
-
-    if (huaweiEntities.length === 0 && !hasAnyResolvedEntity) {
+    if (huaweiEntities.length === 0) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">
@@ -412,10 +301,9 @@ class HuaweiChargerControlCard extends HTMLElement {
     const cableState = (hasCurrentPower || hasDeviceStatus || hasChargeStore || hasPluggedState)
       ? this._deriveCableStatus(currentPowerEntity, deviceStatusEntity, chargeStoreEntity, pluggedInEntity)
       : null;
-    const sessionActions = this._deriveSessionActions(cableState);
-    const minValue = hasDynamic ? toNumber(dynamicEntity?.attributes?.min, 1.6) : null;
-    const maxValue = hasDynamic ? toNumber(dynamicEntity?.attributes?.max, 7.4) : null;
-    const step = hasDynamic ? toNumber(dynamicEntity?.attributes?.step, 0.1) : null;
+    const minValue = hasDynamic ? toNumber(dynamicEntity.attributes.min, 1.6) : null;
+    const maxValue = hasDynamic ? toNumber(dynamicEntity.attributes.max, 7.4) : null;
+    const step = hasDynamic ? toNumber(dynamicEntity.attributes.step, 0.1) : null;
 
     // Preset power levels
     const presets = hasDynamic ? [
@@ -562,56 +450,6 @@ class HuaweiChargerControlCard extends HTMLElement {
         input[disabled] {
           opacity: 0.6;
         }
-        .action-section {
-          margin-bottom: 24px;
-        }
-        .action-buttons {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
-        }
-        .action-button {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          border: none;
-          border-radius: 10px;
-          padding: 12px 14px;
-          font: inherit;
-          font-weight: 600;
-          cursor: pointer;
-          transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-          color: #fff;
-        }
-        .action-button:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-        }
-        .action-button[disabled] {
-          opacity: 0.45;
-          cursor: default;
-          box-shadow: none;
-          transform: none;
-        }
-        .action-button.start {
-          background: linear-gradient(135deg, #2e7d32, #43a047);
-        }
-        .action-button.stop {
-          background: linear-gradient(135deg, #b71c1c, #e53935);
-        }
-        .action-button ha-icon {
-          --mdc-icon-size: 18px;
-        }
-        .action-hint {
-          margin-top: 10px;
-          font-size: 0.82em;
-          opacity: 0.72;
-        }
-        .action-hint.error {
-          color: var(--error-color);
-          opacity: 1;
-        }
         .cable-status {
           display: flex;
           align-items: center;
@@ -638,39 +476,8 @@ class HuaweiChargerControlCard extends HTMLElement {
         <div class="card-content">
           <div class="card-header">
             <ha-icon icon="mdi:tune"></ha-icon>
-            <h3 class="card-title">Charger Control</h3>
+            <h3 class="card-title">Power Control</h3>
           </div>
-
-          ${sessionActions.show ? `
-            <div class="action-section">
-              <div class="section-title">Charging Session</div>
-              <div class="action-buttons">
-                <button
-                  class="action-button start"
-                  id="start-charge"
-                  ${!sessionActions.canStart ? 'disabled' : ''}
-                >
-                  <ha-icon icon="${sessionActions.busyAction === 'start_charge' ? 'mdi:loading' : 'mdi:play'}"></ha-icon>
-                  <span>${sessionActions.busyAction === 'start_charge' ? 'Starting...' : 'Start Charging'}</span>
-                </button>
-                <button
-                  class="action-button stop"
-                  id="stop-charge"
-                  ${!sessionActions.canStop ? 'disabled' : ''}
-                >
-                  <ha-icon icon="${sessionActions.busyAction === 'stop_charge' ? 'mdi:loading' : 'mdi:stop'}"></ha-icon>
-                  <span>${sessionActions.busyAction === 'stop_charge' ? 'Stopping...' : 'Stop Charging'}</span>
-                </button>
-              </div>
-              <div class="action-hint">
-                ${sessionActions.busy
-                  ? 'Waiting for Huawei to confirm the session action.'
-                  : cableState
-                    ? `Detected charger state: ${cableState.status}.`
-                    : 'Session controls appear when the charger status is available.'}
-              </div>
-            </div>
-          ` : ''}
           
           ${hasDynamic ? `
             <div class="power-section">
@@ -750,8 +557,6 @@ class HuaweiChargerControlCard extends HTMLElement {
   setupEventListeners() {
     const slider = this.shadowRoot.getElementById('dynamic-slider');
     const presetButtons = this.shadowRoot.querySelectorAll('.preset-button');
-    const startButton = this.shadowRoot.getElementById('start-charge');
-    const stopButton = this.shadowRoot.getElementById('stop-charge');
 
     // Slider input event
     slider?.addEventListener('input', (e) => {
@@ -774,9 +579,6 @@ class HuaweiChargerControlCard extends HTMLElement {
         this._setPowerLimitOptimistic(value);
       });
     });
-
-    startButton?.addEventListener('click', () => this._runSessionAction('start_charge'));
-    stopButton?.addEventListener('click', () => this._runSessionAction('stop_charge'));
   }
 
   updatePresetButtons(currentValue) {
@@ -823,7 +625,7 @@ class HuaweiChargerControlCard extends HTMLElement {
     
     // Set updating state
     this._isUpdating = true;
-    this._renderSafely();
+    this.render();
     
     try {
       await this._hass.callService('number', 'set_value', {
@@ -845,30 +647,7 @@ class HuaweiChargerControlCard extends HTMLElement {
       // Clear pending value on error
       this._pendingValue = null;
       this._ignoreUpdatesUntil = null;
-      this._renderSafely();
-    }
-  }
-
-  async _runSessionAction(action) {
-    if (!this._hass || this._isSessionActionPending) return;
-    if (!this._hasService('huawei_charger', action)) return;
-
-    this._isSessionActionPending = true;
-    this._pendingSessionAction = action;
-    this._renderSafely();
-
-    try {
-      await this._hass.callService(
-        'huawei_charger',
-        action,
-        this._buildSessionServiceData(action)
-      );
-    } catch (error) {
-      console.error(`Failed to ${action}:`, error);
-    } finally {
-      this._isSessionActionPending = false;
-      this._pendingSessionAction = null;
-      this._renderSafely();
+      this.render();
     }
   }
 }
@@ -882,6 +661,6 @@ if (!window.customCards.some((card) => card.type === 'huawei-charger-control-car
   window.customCards.push({
     type: 'huawei-charger-control-card',
     name: 'Huawei Charger Control Card',
-    description: 'A custom card to start, stop, and tune Huawei charger sessions'
+    description: 'A custom card to control Huawei charger power limits with presets'
   });
 }

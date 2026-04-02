@@ -233,10 +233,8 @@ def test_binary_sensor_setup_removes_legacy_auth_sensor(monkeypatch):
     registry.async_remove.assert_called_once_with(
         "binary_sensor.huawei_charger_credentials_rejected"
     )
-    assert {entity.unique_id for entity in added_entities} == {
-        "test_entry_reauthentication_required",
-        "test_entry_vehicle_connected",
-    }
+    assert len(added_entities) == 1
+    assert added_entities[0].unique_id == "test_entry_reauthentication_required"
 
 
 def test_active_sensor_registers_only_returns_present_registers():

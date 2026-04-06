@@ -7,7 +7,7 @@ class HuaweiChargerInfoCard extends HTMLElement {
 
   setConfig(config) {
     this.config = {
-      show_diagnostic: config.show_diagnostic !== false,
+      show_diagnostic: config?.show_diagnostic !== false,
       ...config
     };
   }
@@ -137,8 +137,27 @@ class HuaweiChargerInfoCard extends HTMLElement {
     const phaseAVoltage = this._findEntityBySuffixes(huaweiEntities, ['phase_a_voltage']);
     const phaseBVoltage = this._findEntityBySuffixes(huaweiEntities, ['phase_b_voltage']);
     const phaseCVoltage = this._findEntityBySuffixes(huaweiEntities, ['phase_c_voltage']);
+    const hasAnyResolvedEntity = [
+      deviceName,
+      serialNumber,
+      softwareVersion,
+      hardwareVersion,
+      deviceModel,
+      ratedPower,
+      temperature,
+      lockStatus,
+      errorCode,
+      warningCode,
+      networkMode,
+      groundingSystem,
+      authType,
+      encryptType,
+      phaseAVoltage,
+      phaseBVoltage,
+      phaseCVoltage,
+    ].some((entity) => Boolean(entity));
     
-    if (huaweiEntities.length === 0) {
+    if (huaweiEntities.length === 0 && !hasAnyResolvedEntity) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">

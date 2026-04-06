@@ -2,6 +2,8 @@ import asyncio
 import importlib
 import logging
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, call
 
 huawei_init = importlib.import_module("custom_components.huawei_charger.__init__")
 
@@ -137,3 +139,47 @@ def test_register_custom_cards_supports_lovelace_object_data(tmp_path, monkeypat
 
     assert existing_url not in {item["url"] for item in resources.created}
     assert len(resources.created) == len(huawei_init.CUSTOM_CARDS) - 1
+
+
+def test_remove_legacy_platform_entities(monkeypatch):
+    registry = SimpleNamespace(async_remove=MagicMock())
+    entry = SimpleNamespace(entry_id="entry-1")
+    registry_entries = [
+        SimpleNamespace(
+            domain="button",
+            unique_id="entry-1_start_charge_button",
+            entity_id="button.huawei_charger_start_charging",
+        ),
+        SimpleNamespace(
+            domain="button",
+            unique_id="entry-1_stop_charge_button",
+            entity_id="button.huawei_charger_stop_charging",
+        ),
+        SimpleNamespace(
+            domain="switch",
+            unique_id="entry-1_charging_switch",
+            entity_id="switch.huawei_charger_charging",
+        ),
+        SimpleNamespace(
+            domain="sensor",
+            unique_id="entry-1_sensor_10008",
+            entity_id="sensor.huawei_charger_total_energy",
+        ),
+    ]
+
+    monkeypatch.setattr(huawei_init.er, "async_get", lambda hass: registry)
+    monkeypatch.setattr(
+        huawei_init.er,
+        "async_entries_for_config_entry",
+        lambda registry_arg, entry_id: registry_entries,
+    )
+
+    asyncio.run(
+        huawei_init._async_remove_legacy_platform_entities(SimpleNamespace(), entry)
+    )
+
+    assert registry.async_remove.call_args_list == [
+        call("button.huawei_charger_start_charging"),
+        call("button.huawei_charger_stop_charging"),
+        call("switch.huawei_charger_charging"),
+    ]

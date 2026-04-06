@@ -1,5 +1,6 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.lovelace.const import (
@@ -16,6 +17,11 @@ from .services import async_register_services, async_unregister_services
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "number", "binary_sensor"]
+LEGACY_REMOVED_ENTITY_UNIQUE_IDS = (
+    "start_charge_button",
+    "stop_charge_button",
+    "charging_switch",
+)
 
 # Custom cards to register
 CUSTOM_CARDS = [
@@ -124,6 +130,19 @@ async def register_custom_cards(hass: HomeAssistant) -> None:
     except Exception as err:
         _LOGGER.error("Failed to register custom cards: %s", err)
 
+
+async def _async_remove_legacy_platform_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove stale registry entries for platforms that no longer exist."""
+    registry = er.async_get(hass)
+    legacy_unique_ids = {
+        f"{entry.entry_id}_{suffix}" for suffix in LEGACY_REMOVED_ENTITY_UNIQUE_IDS
+    }
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if registry_entry.domain not in {"button", "switch"}:
+            continue
+        if registry_entry.unique_id in legacy_unique_ids:
+            registry.async_remove(registry_entry.entity_id)
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Huawei Charger from a config entry."""
     from .coordinator import HuaweiChargerCoordinator
@@ -135,6 +154,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = HuaweiChargerCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    await _async_remove_legacy_platform_entities(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

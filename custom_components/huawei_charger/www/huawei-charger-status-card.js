@@ -171,14 +171,26 @@ class HuaweiChargerStatusCard extends HTMLElement {
     return [...tracked];
   }
 
+  _connectedState(value) {
+    const normalized = this._normalizeStateValue(value);
+    if (['1', 'connected', 'plugged', 'plugged_in', 'true', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'off', 'disconnected', 'unplugged', 'not_connected', 'idle', 'none'].includes(normalized)) {
+      return false;
+    }
+    return null;
+  }
+
   _deriveConnectionState(deviceStatus, chargeStore, pluggedIn, power, chargingActivityDetected) {
     const deviceStatusState = this._normalizeStateValue(deviceStatus?.state);
     const chargeStoreState = this._normalizeStateValue(chargeStore?.state);
     const pluggedState = this._normalizeStateValue(pluggedIn?.state);
-    const statusState = deviceStatusState || chargeStoreState || pluggedState;
+    const pluggedConnectionState = this._connectedState(pluggedState);
+    const deviceConnectionState = this._connectedState(deviceStatusState);
+    const chargeStoreConnectionState = this._connectedState(chargeStoreState);
     const chargingStates = ['3', 'charging', 'active'];
     const readyStates = ['2', 'ready'];
-    const connectedStates = ['1', 'connected', 'plugged', 'true'];
 
     if (
       chargingActivityDetected ||
@@ -196,12 +208,39 @@ class HuaweiChargerStatusCard extends HTMLElement {
       };
     }
 
-    if (readyStates.includes(statusState) || connectedStates.includes(statusState)) {
+    if (pluggedConnectionState === false) {
       return {
         isCharging: false,
-        statusText: readyStates.includes(statusState) ? 'Ready' : 'Connected',
-        connectionText: 'Idle',
-        statusColor: readyStates.includes(statusState) ? '#FF9800' : '#2196F3',
+        statusText: 'Idle',
+        connectionText: 'Disconnected',
+        statusColor: '#9E9E9E',
+        statusIcon: 'mdi:ev-station'
+      };
+    }
+
+    if (
+      pluggedConnectionState === true &&
+      (readyStates.includes(deviceStatusState) || readyStates.includes(chargeStoreState))
+    ) {
+      return {
+        isCharging: false,
+        statusText: 'Ready',
+        connectionText: 'Connected',
+        statusColor: '#FF9800',
+        statusIcon: 'mdi:power-plug'
+      };
+    }
+
+    if (
+      pluggedConnectionState === true ||
+      deviceConnectionState === true ||
+      chargeStoreConnectionState === true
+    ) {
+      return {
+        isCharging: false,
+        statusText: 'Connected',
+        connectionText: 'Connected',
+        statusColor: '#2196F3',
         statusIcon: 'mdi:power-plug'
       };
     }
@@ -273,9 +312,17 @@ class HuaweiChargerStatusCard extends HTMLElement {
       ['dynamic_power_limit', 'fixed_max_charging_power', 'fixed_max_power'],
       this.config.dynamic_power_entity
     );
+    const hasAnyResolvedEntity = [
+      currentPower,
+      sessionEnergy,
+      deviceStatus,
+      chargeStore,
+      pluggedIn,
+      dynamicPowerLimit,
+    ].some((entity) => Boolean(entity));
     
     // If no Huawei entities found, show helpful message with debugging info
-    if (huaweiEntities.length === 0) {
+    if (huaweiEntities.length === 0 && !hasAnyResolvedEntity) {
       // Show all entities for debugging
       const allEntities = Object.keys(this._hass.states).filter(id => 
         id.includes('charger') || id.includes('huawei')

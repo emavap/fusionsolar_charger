@@ -252,8 +252,16 @@ class HuaweiChargerControlCard extends HTMLElement {
       ['plugged_in', 'plugged'],
       this.config.plugged_in_entity
     );
+    const hasAnyResolvedEntity = [
+      dynamicEntity,
+      fixedEntity,
+      currentPowerEntity,
+      deviceStatusEntity,
+      chargeStoreEntity,
+      pluggedInEntity,
+    ].some((entity) => Boolean(entity));
 
-    if (huaweiEntities.length === 0) {
+    if (huaweiEntities.length === 0 && !hasAnyResolvedEntity) {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="card-content">

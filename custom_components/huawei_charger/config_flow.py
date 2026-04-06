@@ -375,13 +375,12 @@ class HuaweiChargerOptionsFlow(config_entries.OptionsFlow):
                         user_input.get(CONF_ENABLE_LOGGING),
                         False,
                     ),
-                    CONF_STATION_DN: HuaweiChargerConfigFlow._coerce_optional_string(
-                        user_input.get(CONF_STATION_DN)
-                    ),
-                    CONF_WALLBOX_DN: HuaweiChargerConfigFlow._coerce_optional_string(
-                        user_input.get(CONF_WALLBOX_DN)
-                    ),
                 }
+                for optional_key in (CONF_STATION_DN, CONF_WALLBOX_DN):
+                    if optional_key in user_input:
+                        validated[optional_key] = HuaweiChargerConfigFlow._coerce_optional_string(
+                            user_input.get(optional_key)
+                        )
                 self.hass.config_entries.async_update_entry(
                     entry,
                     data={**entry.data, CONF_HOST: host},
